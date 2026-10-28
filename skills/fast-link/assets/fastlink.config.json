@@ -1,0 +1,63 @@
+{
+  "$schema": "./fastlink-config.schema.json",
+  "version": "1.0.0",
+  "mode": "reverse_proxy",
+  "proxy": {
+    "upstreamOrigin": "http://localhost:3000",
+    "autoInjectClient": true,
+    "scriptSrc": "/fastlink.min.js",
+    "listenPort": 8080
+  },
+  "prefetch": {
+    "enabled": true,
+    "endpoint": "/api/v1/prefetch",
+    "concurrencyLimit": 6,
+    "ignoredPatterns": [
+      "/api/*",
+      "/auth/*",
+      "/logout",
+      "/admin/*"
+    ]
+  },
+  "gestureSafety": {
+    "rejectTouch": true,
+    "preserveModifiers": true,
+    "preserveKeyboard": true,
+    "suppressDuplicateClick": true
+  },
+  "routePolicies": [
+    {
+      "pattern": "/admin/",
+      "isPrefix": true,
+      "priority": 100,
+      "decision": {
+        "kind": "document",
+        "method": "assign"
+      }
+    },
+    {
+      "pattern": "/logout",
+      "isPrefix": false,
+      "priority": 100,
+      "decision": {
+        "kind": "disabled"
+      }
+    },
+    {
+      "pattern": "/",
+      "isPrefix": true,
+      "priority": 0,
+      "decision": {
+        "kind": "router",
+        "scroll": true
+      }
+    }
+  ],
+  "telemetry": {
+    "enabled": true,
+    "endpoint": "/api/v1/telemetry",
+    "sampleRate": 1.0,
+    "recordHoldDuration": true,
+    "recordAborts": true
+  }
+}

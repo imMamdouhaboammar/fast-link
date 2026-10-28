@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FastLinkConfiguration",
+  "type": "object",
+  "required": ["mode", "prefetch", "gestureSafety"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "default": "1.0.0"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["reverse_proxy", "script_injection", "spa_router_hook"],
+      "description": "Integration architecture mode for FastLink"
+    },
+    "proxy": {
+      "type": "object",
+      "properties": {
+        "upstreamOrigin": {
+          "type": "string",
+          "format": "uri",
+          "description": "Upstream backend origin to proxy requests to"
+        },
+        "autoInjectClient": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically inject client runtime script into HTML responses before </body>"
+        },
+        "scriptSrc": {
+          "type": "string",
+          "default": "/fastlink.min.js",
+          "description": "Public URL where the FastLink client runtime script is served"
+        },
+        "listenPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 8080
+        }
+      }
+    },
+    "prefetch": {
+      "type": "object",
+      "required": ["enabled", "endpoint"],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "endpoint": {
+          "type": "string",
+          "default": "/api/v1/prefetch"
+        },
+        "concurrencyLimit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 6
+        },
+        "ignoredPatterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["/api/*", "/auth/*", "/logout", "/admin/*"]
+        }
+      }
+    },
+    "gestureSafety": {
+      "type": "object",
+      "required": ["rejectTouch", "preserveModifiers", "preserveKeyboard", "suppressDuplicateClick"],
+      "properties": {
+        "rejectTouch": {
+          "type": "boolean",
+          "enum": [true],
+          "description": "Must be true. Rejects pointerType === 'touch' to preserve mobile scrolling inertia"
+        },
+        "preserveModifiers": {
+          "type": "boolean",
+          "enum": [true],
+          "description": "Must be true. Passes through Meta/Ctrl/Shift/Alt/Auxiliary clicks to native browser"
+        },
+        "preserveKeyboard": {
+          "type": "boolean",
+          "enum": [true],
+          "description": "Must be true. Preserves Enter key clicks (event.detail === 0)"
+        },
+        "suppressDuplicateClick": {
+          "type": "boolean",
+          "enum": [true],
+          "description": "Must be true. Calls preventDefault on follow-up click without stopping propagation"
+        }
+      }
+    },
+    "routePolicies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["pattern", "decision"],
+        "properties": {
+          "pattern": { "type": "string" },
+          "isPrefix": { "type": "boolean", "default": true },
+          "priority": { "type": "integer", "default": 0 },
+          "decision": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "kind": { "type": "string", "enum": ["router", "document", "disabled"] },
+              "method": { "type": "string", "enum": ["assign", "replace"] },
+              "scroll": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "endpoint": { "type": "string", "default": "/api/v1/telemetry" },
+        "sampleRate": { "type": "number", "minimum": 0, "maximum": 1, "default": 1.0 },
+        "recordHoldDuration": { "type": "boolean", "default": true },
+        "recordAborts": { "type": "boolean", "default": true }
+      }
+    }
+  }
+}

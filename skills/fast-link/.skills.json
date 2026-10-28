@@ -1,0 +1,14 @@
+{
+  "$schema": "https://skills.sh/schema.json",
+  "name": "fast-link",
+  "version": "1.0.0",
+  "description": "Early pointerdown navigation and prefetch skill for AI agents across web architectures",
+  "author": "Mamdouh Aboammar",
+  "license": "MIT",
+  "skill": "SKILL.md",
+  "tags": [
+    "agent-skill",
+    "automation",
+    "developer-tools"
+  ]
+}
