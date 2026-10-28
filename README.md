@@ -210,6 +210,18 @@ PORT=8081 FASTLINK_UPSTREAM=http://localhost:3000 ./bin/fastlink
 
 ---
 
+## Agent Skill & Automated Integration
+
+FastLink includes a production-grade, tested agent skill located in [`skills/fast-link/`](./skills/fast-link/):
+- **Universal Agent Guidance**: Provides technical specifications, architecture patterns, and configuration runbooks for AI agents (Antigravity, Claude Code, Cursor, Codex).
+- **Automated Verification**: CLI tools to validate `fastlink.config.json` against JSON Schema, test 18 gesture & accessibility invariants, and demonstrate failure recovery.
+- **Install Everywhere**:
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/imMamdouhaboammar/fast-link/main/skills/fast-link/install.sh | bash
+  ```
+
+---
+
 ## Replica Artifacts
 
 Full clean-room documentation produced during reverse engineering:
