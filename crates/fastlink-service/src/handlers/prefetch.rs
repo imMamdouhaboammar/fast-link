@@ -103,7 +103,15 @@ pub async fn handle_prefetch(
             .build()
             .unwrap_or_default();
 
-        let target_url = format!("{}{}", upstream.trim_end_matches('/'), path);
+        let target_url = format!(
+            "{}{}{}",
+            upstream.trim_end_matches('/'),
+            path,
+            parsed_url
+                .query()
+                .map(|query| format!("?{query}"))
+                .unwrap_or_default()
+        );
         match client.get(&target_url).send().await {
             Ok(res) => {
                 let status_code = res.status();

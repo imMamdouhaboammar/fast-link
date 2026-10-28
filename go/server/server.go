@@ -283,6 +283,9 @@ func (s *Server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
 	if s.config.UpstreamOrigin != "" {
 		client := &http.Client{Timeout: 1500 * time.Millisecond}
 		upstreamURL := strings.TrimRight(s.config.UpstreamOrigin, "/") + path
+		if parsedURL.RawQuery != "" {
+			upstreamURL += "?" + parsedURL.RawQuery
+		}
 		upstreamReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, upstreamURL, nil)
 		if err != nil {
 			http.Error(w, "invalid upstream request", http.StatusBadGateway)

@@ -168,6 +168,39 @@ async fn test_prefetch_endpoint_rejects_mutation_query() {
 }
 
 #[tokio::test]
+async fn test_prefetch_preserves_safe_query_on_actual_upstream_request() {
+    let upstream = Router::new().route(
+        "/catalog",
+        get(|uri: axum::http::Uri| async move {
+            if uri.query() == Some("page=2&sort=price") {
+                (StatusCode::OK, "correct query")
+            } else {
+                (StatusCode::BAD_REQUEST, "wrong query")
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+    let app = create_app(Arc::new(AppState::new(ServiceConfig {
+        upstream_origin: Some(upstream_origin),
+        ..ServiceConfig::default()
+    })));
+    let response = app.oneshot(
+        Request::builder().uri("/api/v1/prefetch?url=https%3A%2F%2Fexample.com%2Fcatalog%3Fpage%3D2%26sort%3Dprice")
+            .body(Body::empty()).unwrap(),
+    ).await.unwrap();
+    server.abort();
+    assert_eq!(response.status(), StatusCode::OK);
+    let json: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(
+        json["status"], "ready",
+        "safe query must reach upstream unchanged"
+    );
+}
+
+#[tokio::test]
 async fn test_telemetry_endpoint() {
     let app = default_app();
     let payload = serde_json::json!({

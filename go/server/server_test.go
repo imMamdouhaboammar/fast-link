@@ -273,6 +273,30 @@ func TestPrefetchReusesUpstreamConnections(t *testing.T) {
 	}
 }
 
+func TestPrefetchPreservesSafeQueryOnActualUpstreamRequest(t *testing.T) {
+	var requested string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = r.URL.RequestURI()
+		w.Header().Set("Cache-Control", "public, max-age=60")
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer upstream.Close()
+	srv, err := server.NewServer(server.Config{UpstreamOrigin: upstream.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := "https://example.com/catalog?page=2&sort=price"
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/prefetch?url="+url.QueryEscape(target), nil)
+	res := httptest.NewRecorder()
+	srv.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d", res.Code)
+	}
+	if requested != "/catalog?page=2&sort=price" {
+		t.Fatalf("prefetch fetched a different resource: %q", requested)
+	}
+}
+
 func TestProxyRewritesCompressedHTMLWithoutStaleEncoding(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
