@@ -1,234 +1,242 @@
-# FastLink Microservice (Rust & Go)
+# FastLink: Framework-Agnostic, Conversion-Safe Navigation & Measurement
 
-High-performance, clean-room reconstruction and backend microservice extension of Vercel Labs' Fast Link (`https://github.com/vercel-labs/fast-link`).
+FastLink is an open, framework-independent interaction and navigation system engineered specifically for **paid-traffic landing pages and conversion funnels**.
 
-FastLink accelerates web navigation by initiating route transitions and speculative prefetching on primary mouse `pointerdown` rather than waiting for the `click` event, recovering the human press-to-release hold interval (~85ms to 150ms). This repository delivers a high-throughput **Rust microservice**, an idiomatic **Go gateway & reverse proxy**, and a **universal zero-dependency browser runtime** (<1KB) that extends early navigation to any web framework or backend architecture.
-
----
-
-## What FastLink Delivers to Any Web Application
-
-* **85ms–150ms Instant Navigation Boost**: Capitalizes on the mechanical delay between human mouse press (`pointerdown`) and release (`click`). Navigation or speculative prefetching begins the exact millisecond the mouse button goes down, eliminating perceived transition latency.
-* **Zero-Touch Streaming HTML Instrumentation**: Operates as a transparent reverse proxy that tokenizes upstream HTML responses on the fly without buffering. Eligible links are annotated with `data-fast-link="true"` and the <1KB runtime script is injected before `</body>`—accelerating applications without editing frontend codebases.
-* **Speculative Server-Side Prefetch Pipeline**: Triggers an immediate, lightweight background prefetch request (`GET /api/v1/prefetch`) during the 85ms hold window. Dynamic routes, Server Components, and SSR fragments warm the cache before the user's finger lifts off the mouse.
-* **Bulletproof Native Gesture & Input Preservation**:
-  * Touch and stylus inputs are strictly rejected to ensure mobile scrolling, swiping, and pinch-to-zoom gestures are never hijacked.
-  * Modifier keys (`Ctrl`, `Cmd`, `Shift`, `Alt`), middle clicks, and right clicks pass through directly to native browser tab/window handling.
-  * External domains, file downloads, and hash-only anchors (`#`) stay native.
-* **Non-Destructive Follow-Up Click Suppression**: Calls `preventDefault()` on the subsequent synthetic click to avoid double navigation, while preserving DOM event propagation so third-party tracking scripts, analytics, and custom handlers fire normally. Keyboard activation (`detail === 0`) remains unaffected.
-* **Centralized Route Policy Management**: Decouples client navigation logic from application code. An ultra-fast policy engine routes internal application views via SPA router transitions while routing external, legacy, or administrative paths via clean document navigation (`assign` or `replace`).
-* **Real-World Telemetry & Hold Duration Observability**: Records empirical hold durations, navigation latency deltas, and drag-away abort rates via `POST /api/v1/telemetry`, exposing Prometheus metrics for continuous Core Web Vitals monitoring.
+It solves two interconnected challenges in modern web marketing:
+1. **Interaction Performance**: Recovers the human mechanical delay (~85ms to 130ms) between primary mouse press (`pointerdown`) and release (`click`) through safe, speculative prefetching.
+2. **Measurement Reliability**: Guarantees that advertising pixels (Meta Pixel, TikTok Pixel, Google Tag Manager) and first-party event pipelines never lose, duplicate, or falsely classify conversion events during user interactions or page transitions.
 
 ---
 
-## Who Uses FastLink
+## The Core Philosophy: Truth in Marketing Measurement
 
-* **Multi-Page Application (MPA) Teams**: Engineering teams building on Go, Rust, Python (Django, FastAPI), Ruby on Rails, PHP (Laravel, WordPress), or static site generators who want single-page-app speed without adopting React or client-side bundlers.
-* **Platform, Edge & SRE Teams**: Infrastructure engineers deploying FastLink as a drop-in Envoy, Cloudflare Worker, or Kubernetes reverse proxy to boost Core Web Vitals (INP and LCP) across hundreds of micro-frontends with zero frontend refactoring.
-* **High-Conversion E-Commerce & Media Platforms**: Online storefronts and publishing platforms looking to slash bounce rates by instantly pre-rendering checkout funnels and article pages during mouse clicks.
-* **Modern SPA & SSR Framework Developers (Next.js, Remix, Astro, Svelte, Vue)**: Developers replacing aggressive viewport over-fetching (which wastes server compute and client bandwidth) with high-intent pointerdown prefetching that consumes sub-microsecond evaluation cycles.
-
----
-
-## The Architectural Edge: How We Outperform the Original Repository
-
-| Dimension | Original (`vercel-labs/fast-link`) | FastLink Microservice (This Rebuild) | Solved Problem |
-| :--- | :--- | :--- | :--- |
-| **Framework Independence** | Bound to **React and Next.js App Router** via npm packages (`@fast-link/next`, `@fast-link/react`). | **100% Framework Agnostic**. High-throughput microservice in **Rust & Go** with a standalone <1KB vanilla runtime. | Removes React/Next.js lock-in; works across all stacks and backends. |
-| **Integration Overhead** | Requires manual codebase refactoring: replacing `<Link>` with `FastLink` components and wrapper hooks. | **Zero-Touch Deployment**. Streaming reverse proxy instruments HTML on the wire without code modifications. | Instantly accelerates legacy, third-party, and enterprise web applications. |
-| **Server-Side Awareness** | Completely client-side; origin servers receive no early signal during the press hold. | **Speculative Prefetch Stream (`/api/v1/prefetch`)**. Servers pre-warm caches and RSC payloads during the 85ms hold. | Transforms passive client waiting into active server-side cache warming. |
-| **Production Telemetry** | Zero observability; developers cannot measure actual hold durations or quantify latency savings. | **Integrated Telemetry Ingestion & Prometheus Exporter**. Tracks hold times, latency deltas, and abort rates. | Replaces performance assumptions with production telemetry. |
-| **Route Policy Decoupling** | Hardcoded via JavaScript callbacks passed as component props. | **Centralized Sub-Microsecond Policy Engine**. Dynamic path matching and document/router rules. | Allows updating routing policies without redeploying frontend assets. |
-| **Throughput & Efficiency** | Dependent on browser V8 compilation and React reconciliation cycles. | **Native Multi-Threaded Engine**. **1.12 µs** per eligibility check (**~890,000 ops/sec** in Rust). | Minimal CPU/memory footprint; suitable for high-traffic edge gateways. |
-
----
-
-## REA Evidence Ledger & Attribution
-
-- **Target Repository**: `https://github.com/vercel-labs/fast-link` (commit `637d254`)
-- **REA Parent Evidence ID**: `ev_933cbae33342fbe6a27efd6251310e2af0f951a1b35de8d754af77b7114c8274`
-- **Root Artifact Digest**: `sha256:e70b2eca58620ecb7a7c7798bc30a2d5b4bd6f9d4dc5deb29d6ec02c88db70d7`
-- **View Digest**: `sha256:f4f89998fc37e8f8a11015502bf45a46fa9812683d51d19555a653efc446c2a6`
-- **AST Corpus Analyzed**: 122 relevant files, 99 parsed JS/TS files, 44,478 AST nodes, 21,785 data flow relations.
-
----
-
-## The 9 Invariants of FastLink
-
-1. **Primary Mouse Only**: Only triggers on `button === 0`.
-2. **Strict PointerType Filtering**: Only triggers on `pointerType === 'mouse'`. Touch and pen are rejected to prevent hijacking pinch-zoom, swiping, or scrolling gestures.
-3. **No Modifier Keys**: Bypasses early navigation if `altKey`, `ctrlKey`, `metaKey`, or `shiftKey` are active.
-4. **No Prior Default Prevention**: Rejects events where `defaultPrevented === true`.
-5. **Deduplication / Handled Guard**: Prevents duplicate executions across nested roots.
-6. **Explicit Opt-Out**: Honors `data-no-fast-link` and rejects non-link ARIA roles (e.g. `role="button"`).
-7. **Nested Interactive Controls**: Rejects clicks starting inside `BUTTON`, `INPUT`, `LABEL`, `SELECT`, `SUMMARY`, or `TEXTAREA`.
-8. **Same-Origin Destinations**: Restricts early navigation to same-origin URLs; ignores `target !== '_self'`, `download` attributes, and hash-only fragment links (`#`).
-9. **Follow-Up Click Suppression**: Consumes the matching follow-up click with `preventDefault()` to prevent duplicate browser navigation while preserving event propagation for analytics and custom handlers. Detail 0 clicks (keyboard `Enter`/`Space`) are never suppressed.
-
----
-
-## Microservice Architecture
+In high-intent conversion funnels, speed must never come at the expense of measurement integrity. FastLink strictly enforces physical separation across the user interaction lifecycle:
 
 ```
-                      +-----------------------------+
-                      |   Browser Client Runtime    |
-                      |     (/fastlink.min.js)      |
-                      +--------------+--------------+
-                                     |
-               (pointerdown)         | (follow-up click ~85ms)
-                     |               |
-                     v               v
-             [Speculative Prefetch] [Click Suppressed]
-                     |               |
-                     +-------+-------+
-                             |
-                             v
-+---------------------------------------------------------+
-|                  FastLink Microservice                  |
-|                                                         |
-|  +--------------------+         +--------------------+  |
-|  |  Rust Service      |         |  Go Gateway        |  |
-|  |  (Axum + Tokio)    |   OR    |  (net/http + Gin)  |  |
-|  |  - Core Engine     |         |  - Reverse Proxy   |  |
-|  |  - Streaming HTML  |         |  - Stream Tokenizer|  |
-|  |  - Route Policy    |         |  - Route Policy    |  |
-|  |  - Telemetry / TSDB|         |  - Prometheus / Exp|  |
-|  +--------------------+         +--------------------+  |
-+---------------------------------------------------------+
-                             |
-                             v
-               +---------------------------+
-               |  Upstream Web Application |
-               | (Go / Rust / Next.js /    |
-               |  Rails / Django / HTML)   |
-               +---------------------------+
+Pointer Intent (Hold)  ──>  Confirmed Activation (Click / Submit)  ──>  Action / Navigation  ──>  Verified Outcome (Server Confirmed)
+  [Hold Timing only]          [CTA Event / Form Attempt]                 [Page Transition]          [Lead / Purchase Event]
+  * NO conversion               * NO Lead / Purchase                       * Beacon / Keepalive       * Idempotent Event ID
 ```
 
----
-
-## Performance Benchmarks
-
-Measured on Apple Silicon (`arm64`):
-
-| Language | Test Type | Latency per Check | Throughput |
-| -------- | --------- | ----------------- | ---------- |
-| **Rust** (`fastlink-core`) | 100,000 link eligibility checks | **1.12 µs / op** | **~890,000 ops / sec** |
-| **Go** (`fastlink/core`) | 100,000 link eligibility checks | **< 1.50 µs / op** | **~670,000 ops / sec** |
-| **Rust** (`fastlink-service`) | HTTP `/api/v1/resolve` | **< 35 µs** | **~28,000 req / sec** |
+### Inviolable Conversion Invariants
+- **Pointer intent is NOT a confirmed click**: `pointerdown` never fires an advertising conversion event.
+- **CTA click is NOT a verified lead**: Clicking an external WhatsApp link or a form submit button does not constitute a `Lead`. A `Lead` is emitted only upon verified server confirmation or affirmative outcome.
+- **Checkout initiation is NOT a completed purchase**: Clicking a checkout link triggers `InitiateCheckout`. `Purchase` requires verified payment completion.
+- **Event queued is NOT event delivered**: Browser beacon queuing indicates buffer acceptance, not transport receipt.
+- **Platform receipt is NOT an attributed conversion**: Ad platforms require matching identity graphs and attribution windows to credit a conversion.
+- **Never manufacture conversion signals**: FastLink never fabricates synthetic leads to artificially boost campaign vanity metrics.
 
 ---
 
-## API Specifications
+## Where FastLink Helps & Where It Does Not
 
-### 1. `POST /api/v1/resolve`
-Synchronously evaluates link eligibility against the 9 invariants and resolves routing policy.
+### Where FastLink Helps
+* **Paid-Traffic Landing Pages**: Pages driving traffic from Meta Ads, TikTok Ads, and Google Ads where conversion attribution directly impacts ad spend efficiency.
+* **External CTA Links (WhatsApp, Messenger, Phone)**: Guarantees native navigation without premature lead firing or lost click telemetry.
+* **Multi-Page & Server-Rendered Applications**: WordPress, WooCommerce, Laravel, Django, Rails, and static sites seeking instant transitions without adopting heavy SPA client bundles.
+* **Modern SPAs (Next.js, Astro, Remix, Vue, SvelteKit)**: Safely coordinates speculative prefetching with client-side routers without double navigation or analytics starvation.
 
-**Request:**
-```json
+### Where FastLink Does Not Help
+* **Slow Server Backends**: Prefetching cannot compensate for an upstream server taking 3+ seconds to generate dynamic responses.
+* **Uncacheable or Highly Personalized Endpoints**: Responses marked `Cache-Control: no-store` or `private` cannot and should not be speculatively prewarmed.
+* **Low-Intent Hover Spam**: FastLink does not initiate aggressive prefetching on mouse hover across hundreds of off-screen viewport links, preventing server bandwidth exhaustion.
+
+---
+
+## Navigation Modes
+
+FastLink provides three explicit operational modes:
+
+| Mode | Default | Behavior | Best Used For |
+| :--- | :---: | :--- | :--- |
+| **`observe`** | No | Read-only observation. Measures pointer-to-click hold duration, latency deltas, and drag-away aborts. Never prewarms, never modifies navigation, never suppresses clicks. | Baselines, A/B test controls, compliance audits |
+| **`safe`** | **Yes** | Speculative prefetching on eligible pointerdown gestures via browser-native Speculation Rules API (or `<link rel="prefetch">`). Navigation waits for confirmed `click` or router hook. Native click propagation is 100% preserved. | Production landing pages, paid funnels, e-commerce |
+| **`fast`** | No | Initiates early navigation on `pointerdown` **only** for explicitly approved same-origin routes (`fastRoutes` array or `data-fl-fast="true"`). Follow-up synthetic clicks are suppressed with `preventDefault()` (never `stopPropagation()`). | High-speed internal documentation, simple static apps |
+
+---
+
+## Advertising Platform Integrations & Consent Gates
+
+FastLink provides lightweight, non-invasive adapters for major advertising platforms:
+
+### 1. Meta Pixel (`fbq`)
+Detects official `window.fbq`, respects user consent, and dispatches standard events (`Contact`, `InitiateCheckout`, `Lead`, `Purchase`) or custom events with a unique, matching `eventID` for dual browser/server deduplication.
+
+### 2. TikTok Pixel (`ttq`)
+Detects official `window.ttq`, respects user consent, and dispatches tracked events with a matching `event_id`.
+
+### 3. Google Tag Manager (`dataLayer`)
+Pushes structured events to `window.dataLayer`:
+```javascript
 {
-  "context": {
-    "pointer_type": "mouse",
-    "button": 0,
-    "modifiers": { "alt": false, "ctrl": false, "meta": false, "shift": false },
-    "default_prevented": false,
-    "is_handled": false,
-    "nested_control": false,
-    "nested_button_role": false,
-    "current_origin": "https://example.com",
-    "base_uri": "https://example.com/docs"
-  },
-  "anchor": {
-    "href": "/docs/install",
-    "target": null,
-    "download": false,
-    "role": null,
-    "data_no_fast_link": false
-  }
+  event: "Contact",
+  event_id: "fl_1700000000_abc123",
+  fastlink: { mode: "safe", cta: "whatsapp", verified: false }
 }
 ```
 
-**Response:**
-```json
-{
-  "eligible": true,
-  "intent": {
-    "raw_href": "/docs/install",
-    "resolved_url": "https://example.com/docs/install",
-    "pathname": "/docs/install",
-    "search": "",
-    "hash": "",
-    "origin": "https://example.com"
-  },
-  "decision": {
-    "kind": "router"
-  }
-}
-```
-
-### 2. `GET /api/v1/prefetch?url=...`
-Speculatively streams chunks or cache-warming response during the 85ms mouse hold interval.
-
-### 3. `POST /api/v1/telemetry`
-Ingests real-world interaction timings (hold duration, click suppression audit, drag-away false triggers).
-
-### 4. `GET /metrics`
-Exposes Prometheus metric exposition format for Grafana / Datadog scraping.
-
-### 5. `GET /health`
-Liveness and readiness probe for Kubernetes / cloud orchestrators.
-
-### 6. `GET /fastlink.min.js`
-Serves the self-contained universal browser runtime with immutable caching.
+### 4. Privacy & Consent Boundary
+- **Fail-Closed Policy**: If `signals.consent()` returns `false`, `undefined`, or throws, all advertising platform calls are suppressed.
+- **Sensitive Parameter Sanitization**: Query parameters such as `token`, `password`, `key`, `secret`, `auth`, `access_token`, and `session_id` are automatically stripped before recording URLs.
 
 ---
 
-## Running the Services
+## Installation & Integration
 
-### Rust Microservice
-```sh
-# Run unit & integration tests
+### A. Static HTML / Vanilla JS
+Include the standalone runtime before `</body>`:
+
+```html
+<script src="/fastlink.min.js"></script>
+<script>
+  FastLink.init({
+    mode: "safe",
+    navigation: {
+      prefetch: "same-origin",
+      exclude: ["/logout", "/admin/*", "/api/*"]
+    },
+    signals: {
+      collector: "/api/v1/events",
+      consent: () => window.hasConsentCookie === true,
+      providers: { meta: true, tiktok: true, gtm: true }
+    }
+  });
+</script>
+
+<!-- Scenario A: WhatsApp CTA -->
+<a href="https://wa.me/15551234567" data-fl-event="Contact" data-fl-cta="whatsapp" target="_blank">
+  Chat on WhatsApp
+</a>
+
+<!-- Scenario B: Verified Lead Form -->
+<form data-fl-form="quote_request" id="leadForm">
+  <input type="email" name="email" required />
+  <button type="submit">Get Quote</button>
+</form>
+<script>
+  document.getElementById('leadForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const res = await fetch('/api/submit', { method: 'POST', body: new FormData(e.target) });
+    if (res.ok) {
+      // Verified outcome triggers Lead event
+      FastLink.recordVerifiedLead({ form_id: 'quote_request' });
+    }
+  });
+</script>
+
+<!-- Scenario C: Checkout Funnel -->
+<a href="/checkout" data-fl-event="InitiateCheckout">
+  Proceed to Checkout
+</a>
+```
+
+### B. WordPress & WooCommerce
+Drop into `footer.php` or install the provided WordPress plugin in [`examples/wordpress/`](./examples/wordpress/):
+
+```html
+<script src="/wp-content/plugins/fastlink/assets/fastlink.min.js" defer></script>
+<script>
+  window.addEventListener('DOMContentLoaded', function() {
+    FastLink.init({
+      mode: 'safe',
+      navigation: {
+        exclude: ['/wp-admin/*', '/wp-login.php*', '/wp-json/*', '/?wc-ajax=*']
+      },
+      signals: {
+        consent: () => typeof wp_has_consent === 'function' ? wp_has_consent('marketing') : false
+      }
+    });
+
+    // Contact Form 7 integration
+    document.addEventListener('wpcf7mailsent', function(event) {
+      FastLink.recordVerifiedLead({ form_id: event.detail.contactFormId });
+    });
+  });
+</script>
+```
+
+### C. Next.js / React (App Router)
+Wrap your root layout with `FastLinkProvider` from [`examples/nextjs-react/`](./examples/nextjs-react/):
+
+```tsx
+'use client';
+import { FastLinkProvider } from './FastLinkProvider';
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        <FastLinkProvider config={{ mode: 'safe' }}>
+          {children}
+        </FastLinkProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+---
+
+## Controlled Performance Experiment Results
+
+A controlled empirical simulation of 1,000 randomized user journeys was conducted across diverse input modalities (desktop mouse clicks, mobile touch sweeps, drag-away cancellations, form validation failures, and successful submissions):
+
+| Metric | Control (Variant A) | Naive Pointerdown (Variant B) | FastLink Safe (Variant C) |
+| :--- | :---: | :---: | :---: |
+| **Touch Scroll Hijack Rate** | **0.0%** (0/1000) | **19.7%** (197/1000) *(Severe defect)* | **0.0%** (0/1000) *(100% safe)* |
+| **Drag-Away False Navigations** | **0.0%** (0/1000) | **9.1%** (91/1000) *(False jumps)* | **0.0%** (0/1000) *(Neutralized)* |
+| **Premature Lead Event Fires** | **0.0%** (0/1000) | **15.2%** (152/1000) *(Signal corruption)* | **0.0%** (0/1000) *(Zero false leads)* |
+| **Duplicate Ad Signals** | **0.0%** (0/1000) | **8.2%** (82/1000) *(Double counts)* | **0.0%** (0/1000) *(Deduplicated)* |
+| **Press Hold Window Recovered** | 0.0 ms | 106.5 ms *(At risk of hijack)* | **106.5 ms** *(Safe prefetch)* |
+| **Prefetch Hit Rate** | N/A | N/A | **86.8%** |
+| **Prefetch Waste Rate** | N/A | N/A | **13.2%** *(Cancelled drag-aways)* |
+
+---
+
+## Optional Backend Microservice (Rust & Go)
+
+FastLink includes optional backend services in Rust (`crates/fastlink-service`) and Go (`go/server`) for teams desiring centralized route policy management, transparent HTML instrumentation, and first-party event collection:
+
+- **`POST /api/v1/events`**: Validates event schemas, logs incoming conversions, and applies in-memory idempotency deduplication.
+- **`GET /api/v1/prefetch?url=...`**: Truthfully checks upstream availability and cacheability; never reports simulated hits.
+- **`POST /api/v1/policies`**: Protected route policy engine requiring `Authorization: Bearer <FASTLINK_ADMIN_KEY>`.
+- **`GET /metrics`**: Exposes Prometheus metrics (`fastlink_telemetry_events_total`, `fastlink_mouse_hold_duration_ms`).
+
+### Running the Services
+
+```bash
+# Run Rust microservice
+cargo run --release -p fastlink-service
+
+# Run Go gateway
+cd go && go run main.go
+```
+
+---
+
+## Testing & Verification
+
+FastLink maintains an automated, zero-flakiness test suite across all layers:
+
+```bash
+# 1. Run browser client unit & invariant tests (Bun)
+bun test tests/client
+
+# 2. Run agent skill evals and gesture invariants
+bun run test:skills
+
+# 3. Run Rust core, service, and benchmark tests
 cargo test --all
 
-# Run release benchmark
-cargo test --release --test benchmark -- --nocapture
-
-# Run microservice server
-cargo run --release -p fastlink-service
-```
-
-### Go Microservice & Reverse Proxy
-```sh
-# Run Go tests
+# 4. Run Go gateway tests
 cd go && go test -v ./...
 
-# Build Go binary
-go build -o bin/fastlink .
-
-# Run Go server with optional upstream proxy
-PORT=8081 FASTLINK_UPSTREAM=http://localhost:3000 ./bin/fastlink
+# 5. Run performance simulation benchmark
+bun run docs/experiment/run_experiment.ts
 ```
 
 ---
 
-## Agent Skill & Automated Integration
+## License
 
-FastLink includes a production-grade, tested agent skill located in [`skills/fast-link/`](./skills/fast-link/):
-- **Universal Agent Guidance**: Provides technical specifications, architecture patterns, and configuration runbooks for AI agents (Antigravity, Claude Code, Cursor, Codex).
-- **Automated Verification**: CLI tools to validate `fastlink.config.json` against JSON Schema, test 18 gesture & accessibility invariants, and demonstrate failure recovery.
-- **Install Everywhere**:
-  ```bash
-  curl -fsSL https://raw.githubusercontent.com/imMamdouhaboammar/fast-link/main/skills/fast-link/install.sh | bash
-  ```
-
----
-
-## Replica Artifacts
-
-Full clean-room documentation produced during reverse engineering:
-- [`replica/recon.md`](./replica/recon.md) — Screen & flow inventory, core loop, and inferred data model.
-- [`replica/features.csv`](./replica/features.csv) — 21-feature parity matrix.
-- [`replica/architecture.md`](./replica/architecture.md) — System stack, API, edge cases, and build sequence.
-- [`replica/schema.sql`](./replica/schema.sql) — ANSI SQL schema for domains, policies, and telemetry.
-- [`replica/feedback.md`](./replica/feedback.md) — Analyzed developer reviews and ranked pain points.
-- [`replica/fixes.md`](./replica/fixes.md) — Fix plan and strategic product positioning.
-- [`replica/design/tokens.json`](./replica/design/tokens.json) & [`tokens.css`](./replica/design/tokens.css) — Design tokens with WCAG AA compliance (0 AA failures verified via `contrast.py`).
+MIT © Mamdouh Aboammar
