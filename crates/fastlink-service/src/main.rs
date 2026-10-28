@@ -28,6 +28,7 @@ async fn main() {
         enable_proxy: true,
         auto_inject_client: true,
         script_src: "/fastlink.min.js".to_string(),
+        ..ServiceConfig::default()
     };
 
     let shared_state = Arc::new(AppState::new(config));

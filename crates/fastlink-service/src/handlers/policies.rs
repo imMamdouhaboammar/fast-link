@@ -1,7 +1,11 @@
-use axum::{extract::State, http::StatusCode, Json};
-use serde::{Deserialize, Serialize};
-use fastlink_core::{FastNavigationDecision, RoutePolicyRule};
 use crate::state::SharedState;
+use axum::{
+    extract::State,
+    http::{header, HeaderMap, StatusCode},
+    Json,
+};
+use fastlink_core::{FastNavigationDecision, RoutePolicyRule};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AddPolicyRequest {
@@ -13,8 +17,28 @@ pub struct AddPolicyRequest {
 
 pub async fn handle_add_policy(
     State(state): State<SharedState>,
+    headers: HeaderMap,
     Json(payload): Json<AddPolicyRequest>,
 ) -> (StatusCode, Json<serde_json::Value>) {
+    // Enforce Authorization: Bearer <FASTLINK_ADMIN_KEY>
+    let auth_header = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+
+    let expected_auth = format!("Bearer {}", state.config.admin_key);
+    match auth_header {
+        Some(token) if !state.config.admin_key.trim().is_empty() && token == expected_auth => {}
+        _ => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({
+                    "error": "unauthorized",
+                    "message": "Valid Bearer authorization token required to mutate route policies"
+                })),
+            );
+        }
+    }
+
     let mut engine = state.policy_engine.write().await;
     engine.add_rule(RoutePolicyRule {
         pattern: payload.pattern.clone(),

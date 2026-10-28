@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FastLink Landing Page Example — Paid Traffic Funnel</title>
+  <meta name="description" content="FastLink is a framework-independent interaction and navigation system engineered for paid-traffic landing pages and conversion funnels.">
+  <link rel="canonical" href="https://fastlink.dev/demo">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://fastlink.dev/demo">
+  <meta property="og:title" content="FastLink Landing Page Example — Paid Traffic Funnel">
+  <meta property="og:description" content="Framework-agnostic interaction acceleration with conversion-safe signal integrity.">
+  <meta property="og:image" content="https://fastlink.dev/og-image.jpg">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:url" content="https://fastlink.dev/demo">
+  <meta name="twitter:title" content="FastLink Landing Page Example — Paid Traffic Funnel">
+  <meta name="twitter:description" content="Framework-agnostic interaction acceleration with conversion-safe signal integrity.">
+  <meta name="twitter:image" content="https://fastlink.dev/og-image.jpg">
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --primary: #38bdf8;
+      --primary-hover: #0284c7;
+      --accent-green: #22c55e;
+      --accent-amber: #f59e0b;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem 1rem;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    header { margin-bottom: 2.5rem; text-align: center; }
+    h1 { font-size: 2.25rem; font-weight: 700; margin-bottom: 0.5rem; }
+    p.subtitle { color: var(--muted); font-size: 1.1rem; }
+    .badge {
+      display: inline-block;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--primary);
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 1.5rem; margin-bottom: 2rem; }
+    @media (min-width: 640px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+    }
+    .card h2 { font-size: 1.25rem; margin-bottom: 0.75rem; color: #fff; }
+    .card p { color: var(--muted); font-size: 0.95rem; margin-bottom: 1.25rem; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.75rem 1.25rem;
+      border-radius: 8px;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      border: none;
+      font-size: 0.95rem;
+      width: 100%;
+    }
+    .btn-whatsapp { background: var(--accent-green); color: #fff; }
+    .btn-whatsapp:hover { background: #16a34a; }
+    .btn-primary { background: var(--primary); color: #0f172a; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .form-group { margin-bottom: 1rem; }
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.35rem; }
+    input {
+      width: 100%;
+      padding: 0.65rem 0.85rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #0b1120;
+      color: #fff;
+      font-size: 0.95rem;
+    }
+    input:focus { outline: none; border-color: var(--primary); }
+    .console-box {
+      background: #030712;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.85rem;
+      height: 220px;
+      overflow-y: auto;
+      color: #a5f3fc;
+    }
+    .log-entry { margin-bottom: 0.35rem; }
+    .log-tag { color: var(--accent-amber); font-weight: bold; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="badge">Production Landing Page Reference</div>
+    <h1>FastLink Conversion & Navigation</h1>
+    <p class="subtitle">Framework-agnostic interaction acceleration with conversion-safe signal integrity.</p>
+  </header>
+
+  <label style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem;">
+    <input id="marketing-consent" type="checkbox" style="width: auto;">
+    Allow marketing measurement in this demo
+  </label>
+
+  <div class="grid">
+    <!-- Scenario A: WhatsApp External CTA -->
+    <div class="card">
+      <h2>Scenario A: WhatsApp CTA</h2>
+      <p>External contact link. Emits <code>Contact</code> on confirmed click. Never premature, never counted as a <code>Lead</code>, native navigation preserved.</p>
+      <a
+        href="https://wa.me/15551234567?text=Hi%2C%20I%20am%20interested%20in%20FastLink"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="btn btn-whatsapp"
+        data-fl-event="Contact"
+        data-fl-cta="whatsapp"
+      >
+        Chat on WhatsApp
+      </a>
+    </div>
+
+    <!-- Scenario C: Internal Funnel / Checkout -->
+    <div class="card">
+      <h2>Scenario C: Checkout Funnel</h2>
+      <p>Same-origin link. Prefetched safely on pointerdown. Emits <code>InitiateCheckout</code> on confirmed click. Never triggers <code>Purchase</code> on click.</p>
+      <a
+        href="/checkout"
+        class="btn btn-primary"
+        data-fl-event="InitiateCheckout"
+        data-fl-cta="checkout_button"
+      >
+        Proceed to Checkout
+      </a>
+    </div>
+  </div>
+
+  <!-- Scenario B: Verified Lead Form -->
+  <div class="card" style="margin-bottom: 2rem;">
+    <h2>Scenario B: Lead Capture Form</h2>
+    <p>Submitting the form triggers <code>FormAttempt</code> (not <code>Lead</code>). Only upon server verification is a verified <code>Lead</code> event dispatched.</p>
+    <form id="demo-lead-form" data-fl-form="landing_page_lead">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div class="form-group">
+          <label for="lead-name">Full Name</label>
+          <input type="text" id="lead-name" required placeholder="Alex Mercer">
+        </div>
+        <div class="form-group">
+          <label for="lead-email">Work Email</label>
+          <input type="email" id="lead-email" required placeholder="alex@company.com">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary" style="margin-top: 0.5rem;">
+        Request Consultation
+      </button>
+    </form>
+    <div id="form-feedback" style="display: none; margin-top: 1rem; padding: 0.75rem; border-radius: 6px; background: rgba(34, 197, 94, 0.15); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.3);"></div>
+  </div>
+
+  <!-- Live Observability Stream -->
+  <div class="card">
+    <h2>Live Event & Signal Console</h2>
+    <p>Displays all dispatched events, deduplication IDs, hold timings, and prefetch activity.</p>
+    <div id="console" class="console-box"></div>
+  </div>
+
+  <!-- FastLink Universal Runtime -->
+  <script src="../../client/fastlink.js"></script>
+  <script>
+    const consoleEl = document.getElementById('console');
+    function logMessage(tag, msg) {
+      const line = document.createElement('div');
+      line.className = 'log-entry';
+      const time = new Date().toISOString().substring(11, 19);
+      line.innerHTML = `<span style="color:#64748b;">[${time}]</span> <span class="log-tag">[${tag}]</span> ${msg}`;
+      consoleEl.appendChild(line);
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    // Mock platform pixels for demonstration
+    window.fbq = function(action, eventName, params, extra) {
+      logMessage('Meta Pixel', `${action} -> ${eventName} (eventID: ${extra ? extra.eventID : 'none'})`);
+    };
+    window.ttq = {
+      track: function(eventName, params, extra) {
+        logMessage('TikTok Pixel', `track -> ${eventName} (event_id: ${extra ? extra.event_id : 'none'})`);
+      }
+    };
+    window.dataLayer = [];
+
+    // Initialize FastLink in 'safe' mode
+    FastLink.init({
+      mode: 'safe',
+      navigation: {
+        prefetch: 'same-origin',
+        preserveNativeClicks: true,
+        exclude: ['/api/*', '/logout', '/admin/*']
+      },
+      signals: {
+        // Add collector: '/api/v1/events' only when that endpoint is deployed.
+        consent: () => document.getElementById('marketing-consent').checked,
+        providers: { meta: true, tiktok: true, gtm: true }
+      },
+      debug: true
+    });
+
+    logMessage('FastLink', 'Runtime initialized in [safe] mode. Ready for interaction.');
+
+    // Handle Form Submit Verification (Scenario B)
+    const form = document.getElementById('demo-lead-form');
+    const feedback = document.getElementById('form-feedback');
+
+    form.addEventListener('submit', async function(e) {
+      e.preventDefault();
+      logMessage('Form', 'Submit gesture triggered. FormAttempt dispatched. Verifying with server...');
+
+      try {
+        // Your backend must validate and persist the lead, then return verified: true and lead_id.
+        const response = await fetch('/api/submit-lead', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: document.getElementById('lead-name').value,
+            email: document.getElementById('lead-email').value
+          })
+        });
+        if (!response.ok) throw new Error('Lead submission rejected');
+        const result = await response.json();
+        if (result.verified !== true || !result.lead_id) throw new Error('Lead not verified');
+        const verifiedEventId = FastLink.recordVerifiedLead({
+          lead_id: result.lead_id,
+          lead_source: 'hero_form',
+          email_domain: document.getElementById('lead-email').value.split('@')[1] || 'unknown'
+        });
+
+        logMessage('Server Outcome', `Lead verified by backend! Dispatched [Lead] event with ID: ${verifiedEventId}`);
+        feedback.textContent = `Thank you! Your consultation request has been confirmed. (Event ID: ${verifiedEventId})`;
+        feedback.style.display = 'block';
+        form.reset();
+      } catch {
+        logMessage('Form', 'Lead verification failed. No Lead event was dispatched.');
+        feedback.textContent = 'Submission could not be verified. Please try again.';
+        feedback.style.display = 'block';
+      }
+    });
+  </script>
+</body>
+</html>
