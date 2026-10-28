@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "crates/fastlink-core",
+    "crates/fastlink-service",
+]
+resolver = "2"

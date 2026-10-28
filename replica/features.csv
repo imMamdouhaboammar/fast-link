@@ -1,0 +1,23 @@
+feature,area,priority,original,clone,notes
+Primary mouse pointerdown navigation trigger,core,must,yes,yes,Starts navigation on press instead of waiting for click
+Touch and pen pointer rejection,core,must,yes,yes,Preserves native gestures (scroll/swipe/pinch) for touch and pen
+Modifier keys passthrough (ctrl/meta/alt/shift),core,must,yes,yes,Preserves browser default new-tab and window opening
+DefaultPrevented and already-handled event guard,core,must,yes,yes,Prevents duplicate execution across nested roots
+Opt-out via data-no-fast-link and button role,core,must,yes,yes,Honors explicit cancellation and nested interactive elements
+Nested control tag filtering,core,must,yes,yes,Ignores BUTTON INPUT LABEL SELECT SUMMARY TEXTAREA
+Anchor attribute filtering (target download hash-only),core,must,yes,yes,Bypasses _blank download and fragment-only anchors
+Same-origin URL validation,core,must,yes,yes,Restricts early navigation strictly to same-origin destinations
+Follow-up click suppression without stopping propagation,core,must,yes,yes,preventDefault on follow-up click; custom handlers still run
+Multi-root coordination and anchor priority,coordination,must,yes,yes,Anchor controller takes priority over containing regions
+FastNavigationDecision contract (router vs document),routing,must,yes,yes,Supports router scroll override and document assign/replace
+Universal zero-dependency client runtime,client,must,no,yes,Allows any framework or static HTML to use Fast-Link without React
+High-performance Rust microservice engine,server,must,no,yes,Sub-millisecond route resolution and telemetry ingestion in Rust
+Idiomatic Go microservice and reverse proxy,server,must,no,yes,High-throughput Go gateway and middleware for transparent proxying
+Streaming HTML rewriter middleware,proxy,should,no,yes,Automatically instruments upstream HTML on the fly with zero buffering
+Speculative early prefetch API,prefetch,should,no,yes,Streams pre-rendered chunks or JSON during the 85ms hold interval
+Server-side route policy engine,routing,should,no,yes,Configurable tenant-level routing and destination validation rules
+Real-world hold duration telemetry,telemetry,should,no,yes,Measures press-to-release hold time and navigation latency deltas
+Observability dashboard and Prometheus metrics,telemetry,should,no,yes,Exposes p50/p95/p99 hold times and click suppression rates
+gRPC and REST dual-protocol APIs,api,could,no,yes,High-speed inter-service communication for microservice architectures
+Database persistence for telemetry and policies,storage,could,no,yes,SQLite/Postgres schema for durable audit logs
+WebSocket speculative streaming pipe,realtime,could,no,yes,Bi-directional speculative chunk streaming on pointerdown
