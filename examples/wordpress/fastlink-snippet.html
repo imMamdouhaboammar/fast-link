@@ -1,0 +1,72 @@
+<!--
+  FastLink WordPress Drop-In Integration Snippet
+  Place this code inside your theme's footer.php (before </body>)
+  or inject via "Insert Headers and Footers" plugin.
+-->
+<script src="/wp-content/plugins/fastlink/assets/fastlink.min.js" defer></script>
+<script>
+  window.addEventListener('DOMContentLoaded', function() {
+    if (!window.FastLink) return;
+
+    // Consent integration with WP Consent API, Cookiebot, or Complianz
+    function checkWpConsent() {
+      // 1. WP Consent API standard
+      if (typeof window.wp_has_consent === 'function') {
+        return window.wp_has_consent('marketing');
+      }
+      // 2. Cookiebot
+      if (typeof window.Cookiebot !== 'undefined') {
+        return !!(window.Cookiebot.consent && window.Cookiebot.consent.marketing);
+      }
+      // 3. Complianz
+      if (typeof window.cmplz_has_consent === 'function') {
+        return window.cmplz_has_consent('marketing');
+      }
+      // Fail closed if consent status is unconfirmed
+      return false;
+    }
+
+    FastLink.init({
+      mode: 'safe', // 'safe' mode preserves native WooCommerce and AJAX form behaviors
+      navigation: {
+        prefetch: 'same-origin',
+        preserveNativeClicks: true,
+        exclude: [
+          '/wp-admin/*',
+          '/wp-login.php*',
+          '/wp-json/*',
+          '/?wc-ajax=*',
+          '/cart/?remove_item=*',
+          '/logout'
+        ]
+      },
+      signals: {
+        collector: '/wp-json/fastlink/v1/events',
+        consent: checkWpConsent,
+        providers: {
+          meta: true,
+          tiktok: true,
+          gtm: true
+        }
+      }
+    });
+
+    // Contact Form 7 Lead Verification Integration
+    document.addEventListener('wpcf7mailsent', function(event) {
+      FastLink.recordVerifiedLead({
+        form_id: event.detail.contactFormId,
+        plugin: 'contact-form-7'
+      });
+    }, false);
+
+    // WooCommerce Add To Cart / Checkout Integration
+    document.body.addEventListener('click', function(event) {
+      var target = event.target;
+      if (target && target.matches('.single_add_to_cart_button, .ajax_add_to_cart')) {
+        FastLink.recordEvent('AddToCart', {
+          product_id: target.value || target.getAttribute('data-product_id')
+        });
+      }
+    });
+  });
+</script>
