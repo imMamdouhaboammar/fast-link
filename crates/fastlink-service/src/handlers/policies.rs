@@ -1,11 +1,11 @@
+use crate::state::SharedState;
 use axum::{
     extract::State,
     http::{header, HeaderMap, StatusCode},
     Json,
 };
-use serde::{Deserialize, Serialize};
 use fastlink_core::{FastNavigationDecision, RoutePolicyRule};
-use crate::state::SharedState;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AddPolicyRequest {
@@ -27,7 +27,7 @@ pub async fn handle_add_policy(
 
     let expected_auth = format!("Bearer {}", state.config.admin_key);
     match auth_header {
-        Some(token) if token == expected_auth => {}
+        Some(token) if !state.config.admin_key.trim().is_empty() && token == expected_auth => {}
         _ => {
             return (
                 StatusCode::UNAUTHORIZED,

@@ -1,12 +1,13 @@
+use crate::state::{SharedState, PREFETCH_REQUESTS_TOTAL};
 use axum::{
     extract::{Query, State},
     http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
+use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use url::Url;
-use crate::state::{SharedState, PREFETCH_REQUESTS_TOTAL};
 
 #[derive(Debug, Deserialize)]
 pub struct PrefetchQuery {
@@ -53,10 +54,31 @@ pub async fn handle_prefetch(
         }
     };
 
-    let path = parsed_url.path();
+    let decoded_path = percent_decode_str(parsed_url.path()).decode_utf8_lossy();
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in decoded_path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            _ => segments.push(segment),
+        }
+    }
+    let normalized_path = format!("/{}", segments.join("/"));
+    let path = normalized_path.as_str();
+    let mutating_query = parsed_url.query_pairs().any(|(key, _)| {
+        matches!(
+            key.to_ascii_lowercase().as_str(),
+            "add-to-cart" | "wc-ajax" | "action" | "logout" | "_wpnonce" | "remove_item"
+        )
+    });
 
     // 2. Reject sensitive mutation, auth, and admin endpoints
-    if path.starts_with("/api/")
+    if mutating_query
+        || !matches!(parsed_url.scheme(), "http" | "https")
+        || parsed_url.host_str().is_none()
+        || path.starts_with("/api/")
         || path.starts_with("/auth/")
         || path.starts_with("/admin")
         || path == "/logout"
@@ -131,14 +153,17 @@ pub async fn handle_prefetch(
                     );
                 }
             }
-            Err(e) => {
-                headers.insert("X-FastLink-Prefetch", "upstream-unavailable".parse().unwrap());
+            Err(_) => {
+                headers.insert(
+                    "X-FastLink-Prefetch",
+                    "upstream-unavailable".parse().unwrap(),
+                );
                 return (
                     StatusCode::OK,
                     headers,
                     Json(PrefetchResult {
                         url: params.url,
-                        status: format!("upstream_error: {}", e),
+                        status: "upstream_unavailable".to_string(),
                         prewarmed: false,
                         timestamp_ms: now,
                     }),

@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import FastLink, { FastLinkConfig, FastLinkIntent } from '../../client/src/index';
+import { mergeFastLinkProviderConfig } from './fastlink-config';
 
 interface FastLinkContextValue {
   recordEvent: (name: string, props?: Record<string, any>, options?: any) => string;
@@ -32,24 +33,7 @@ export function FastLinkProvider({ config, children }: FastLinkProviderProps) {
     }
 
     // Initialize FastLink in 'safe' mode by default
-    const runtime = FastLink.init({
-      mode: 'safe',
-      navigation: {
-        prefetch: 'same-origin',
-        preserveNativeClicks: true,
-        exclude: ['/api/*', '/auth/*', '/logout', '/admin/*'],
-        ...config?.navigation,
-      },
-      signals: {
-        collector: '/api/v1/events',
-        consent: () => {
-          // Hook into Next.js cookie consent or CMP state
-          return typeof window !== 'undefined' && localStorage.getItem('marketing_consent') === 'true';
-        },
-        ...config?.signals,
-      },
-      ...config,
-    });
+    FastLink.init(mergeFastLinkProviderConfig(config));
 
     return () => {
       FastLink.destroy();

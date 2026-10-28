@@ -57,6 +57,15 @@ class FastLink_Plugin {
             'window.__FAST_LINK_CONFIG__ = ' . wp_json_encode($config) . ';',
             'before'
         );
+        // Functions cannot be encoded in JSON; attach the evaluator before auto-init.
+        wp_add_inline_script('fastlink-runtime', <<<'JS'
+window.__FAST_LINK_CONFIG__.signals.consent = function () {
+  if (typeof window.wp_has_consent === 'function') return window.wp_has_consent('marketing') === true;
+  if (window.Cookiebot && window.Cookiebot.consent) return window.Cookiebot.consent.marketing === true;
+  if (typeof window.cmplz_has_consent === 'function') return window.cmplz_has_consent('marketing') === true;
+  return false;
+};
+JS, 'before');
     }
 
     public function register_collector_endpoint() {
@@ -69,13 +78,23 @@ class FastLink_Plugin {
 
     public function handle_event_ingestion(WP_REST_Request $request) {
         $params = $request->get_json_params();
+        // Accept JSON bodies even when an intermediary supplies the wrong media type.
+        if (!is_array($params)) {
+            $params = json_decode($request->get_body(), true);
+        }
 
-        if (empty($params['event_id']) || empty($params['event_name'])) {
+        if (!is_array($params) ||
+            !isset($params['event_id'], $params['event_name'], $params['timestamp_ms']) ||
+            !is_string($params['event_id']) || !is_string($params['event_name']) ||
+            !is_numeric($params['timestamp_ms']) || $params['timestamp_ms'] <= 0) {
             return new WP_Error('invalid_payload', 'Missing event_id or event_name', ['status' => 400]);
         }
 
         $event_id = sanitize_text_field($params['event_id']);
         $event_name = sanitize_text_field($params['event_name']);
+        if ($event_id === '' || $event_name === '' || strlen($event_id) > 128 || strlen($event_name) > 64) {
+            return new WP_Error('invalid_payload', 'Invalid event identifier', ['status' => 400]);
+        }
 
         // Idempotency check using WordPress transient cache
         $transient_key = 'fl_evt_' . md5($event_id);
@@ -90,12 +109,39 @@ class FastLink_Plugin {
         set_transient($transient_key, true, 600);
 
         // Optional: hook for downstream processing / server CAPI forwarding
-        do_action('fastlink_event_received', $params);
+        $clean = [
+            'event_id' => $event_id,
+            'event_name' => $event_name,
+            'timestamp_ms' => (int) $params['timestamp_ms'],
+        ];
+        foreach (['mode', 'cta', 'url'] as $field) {
+            if (isset($params[$field]) && is_string($params[$field])) {
+                $clean[$field] = $field === 'url' ? esc_url_raw($params[$field]) : sanitize_text_field($params[$field]);
+            }
+        }
+        if (isset($params['verified']) && is_bool($params['verified'])) {
+            $clean['verified'] = $params['verified'];
+        }
+        if (isset($params['properties']) && is_array($params['properties'])) {
+            $clean['properties'] = $this->sanitize_event_properties($params['properties']);
+        }
+        do_action('fastlink_event_received', $clean);
 
         return rest_ensure_response([
             'status' => 'received',
             'event_id' => $event_id
         ]);
+    }
+
+    private function sanitize_event_properties(array $values) {
+        $clean = [];
+        foreach ($values as $key => $value) {
+            $name = sanitize_text_field((string) $key);
+            if (is_array($value)) $clean[$name] = $this->sanitize_event_properties($value);
+            elseif (is_string($value)) $clean[$name] = sanitize_text_field($value);
+            elseif (is_bool($value) || is_numeric($value)) $clean[$name] = $value;
+        }
+        return $clean;
     }
 }
 

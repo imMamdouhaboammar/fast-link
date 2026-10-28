@@ -218,6 +218,71 @@ describe('FastLink Core & Invariant Verification', () => {
     expect(runtime.core.resolveEligibility({ defaultPrevented: false, button: 0, pointerType: 'mouse' } as any, adminAnchor)).toBeNull();
   });
 
+  it('never speculatively fetches mutation query URLs, including cancelled gestures', () => {
+    const runtime = new FastLinkRuntime({ mode: 'safe' });
+    const anchor = document.createElement('a') as any;
+    anchor.setAttribute('href', '/?add-to-cart=123');
+    document.body.appendChild(anchor);
+
+    const event: any = { defaultPrevented: false, button: 0, pointerType: 'mouse', target: anchor };
+    expect(runtime.core.resolveEligibility(event, anchor)).toBeNull();
+    for (const listener of (document as any)._listeners['pointerdown']) listener(event);
+    for (const listener of (document as any)._listeners['pointerup']) listener({ target: document.body });
+    expect(document.head.children).toHaveLength(0);
+    expect(runtime.core.getPrefetchedUrls()).toHaveLength(0);
+
+    for (const href of ['/?wc-ajax=add_to_cart', '/?action=delete', '/?logout=1', '/?_wpnonce=abc']) {
+      anchor.setAttribute('href', href);
+      expect(runtime.core.resolveEligibility(event, anchor)).toBeNull();
+    }
+    expect(runtime.prefetch('/?add-to-cart=456').prefetched).toBe(false);
+    expect(document.head.children).toHaveLength(0);
+  });
+
+  it('matches configured query-string exclusions without excluding unrelated queries', () => {
+    const runtime = new FastLinkRuntime({ navigation: { exclude: ['/search?remove_item=*'] } });
+    const anchor = document.createElement('a') as any;
+    const event: any = { defaultPrevented: false, button: 0, pointerType: 'mouse', target: anchor };
+    anchor.setAttribute('href', '/search?remove_item=abc');
+    expect(runtime.core.resolveEligibility(event, anchor)).toBeNull();
+    anchor.setAttribute('href', '/search?q=product');
+    expect(runtime.core.resolveEligibility(event, anchor)).not.toBeNull();
+  });
+
+  it('observe mode never calls a framework navigation hook on confirmed click', () => {
+    const anchor = document.createElement('a') as any;
+    anchor.setAttribute('href', '/details');
+    document.body.appendChild(anchor);
+    let navigations = 0;
+    (window as any).__FAST_LINK_NAVIGATE__ = () => { navigations++; };
+    new FastLinkRuntime({ mode: 'observe' });
+    const pointer: any = { defaultPrevented: false, button: 0, pointerType: 'mouse', target: anchor };
+    for (const listener of (document as any)._listeners.pointerdown) listener(pointer);
+    let prevented = false;
+    for (const listener of (document as any)._listeners.click) {
+      listener({ target: anchor, detail: 1, preventDefault: () => { prevented = true; } });
+    }
+    expect(navigations).toBe(0);
+    expect(prevented).toBe(false);
+  });
+
+  it('does not hijack a modifier-click added after pointerdown', () => {
+    const anchor = document.createElement('a') as any;
+    anchor.setAttribute('href', '/details');
+    document.body.appendChild(anchor);
+    let navigations = 0;
+    (window as any).__FAST_LINK_NAVIGATE__ = () => { navigations++; };
+    new FastLinkRuntime({ mode: 'safe' });
+    const pointer: any = { defaultPrevented: false, button: 0, pointerType: 'mouse', target: anchor };
+    for (const listener of (document as any)._listeners.pointerdown) listener(pointer);
+    let prevented = false;
+    for (const listener of (document as any)._listeners.click) {
+      listener({ target: anchor, detail: 1, metaKey: true, preventDefault: () => { prevented = true; } });
+    }
+    expect(navigations).toBe(0);
+    expect(prevented).toBe(false);
+  });
+
   it('honors matchDataFastLinkOnly when enabled', () => {
     const runtime = new FastLinkRuntime({
       mode: 'safe',
@@ -264,7 +329,7 @@ describe('FastLink Core & Invariant Verification', () => {
     expect(runtime.core.getPrefetchedUrls()).toContain('https://example.com/checkout');
   });
 
-  it('fast mode navigates early on pointerdown ONLY for approved routes', () => {
+  it('fast mode navigates on confirmed pointerup ONLY for approved routes', () => {
     let assignedUrl: string | null = null;
     (window as any).location.assign = (url: string) => {
       assignedUrl = url;
@@ -289,8 +354,34 @@ describe('FastLink Core & Invariant Verification', () => {
       target: approvedAnchor,
     });
 
-    // In FAST mode on an approved route, early navigation should occur
+    // Contract correction: pointerdown navigation cannot respect drag-away cancellation.
+    // Approved fast routes can navigate after pointerup confirms the release target.
+    expect(assignedUrl).toBeNull();
+    (document as any)._listeners.pointerup[0]({
+      defaultPrevented: false, button: 0, pointerType: 'mouse', target: approvedAnchor,
+    });
     expect(assignedUrl).toBe('https://example.com/approved-page');
+  });
+
+  it('fast mode never navigates a cancelled mouse drag-away, even on an approved route', () => {
+    let assignedUrl: string | null = null;
+    (window as any).location.assign = (url: string) => { assignedUrl = url; };
+    new FastLinkRuntime({ mode: 'fast', navigation: { fastRoutes: ['/approved-page'] } });
+
+    const anchor = document.createElement('a') as any;
+    anchor.setAttribute('href', '/approved-page');
+    document.body.appendChild(anchor);
+    const outside = document.createElement('div') as any;
+    document.body.appendChild(outside);
+
+    (document as any)._listeners.pointerdown[0]({
+      defaultPrevented: false, button: 0, pointerType: 'mouse', target: anchor,
+    });
+    (document as any)._listeners.pointerup[0]({
+      defaultPrevented: false, button: 0, pointerType: 'mouse', target: outside,
+    });
+
+    expect(assignedUrl).toBeNull();
   });
 
   it('observe mode does not prefetch and does not modify navigation', () => {
@@ -546,5 +637,86 @@ describe('FastLink Measurement & Signal Layer', () => {
     FastLink.recordEvent('CustomCTA', {}, { eventId: stableId }); // duplicate attempt
 
     expect(callCount).toBe(1);
+  });
+
+  it('omitting a collector causes no network request, including interaction telemetry', () => {
+    let beacons = 0;
+    (globalThis as any).navigator.sendBeacon = () => { beacons++; return true; };
+    const runtime = FastLink.init({ signals: { consent: () => false } });
+    runtime.recordEvent('Contact');
+    const anchor = document.createElement('a') as any;
+    anchor.setAttribute('href', '/products');
+    document.body.appendChild(anchor);
+    const pointerEvent = { defaultPrevented: false, button: 0, pointerType: 'mouse', target: anchor };
+    for (const listener of (document as any)._listeners.pointerdown) listener(pointerEvent);
+    for (const listener of (document as any)._listeners.click) listener({ target: anchor, detail: 1 });
+    expect(beacons).toBe(0);
+  });
+
+  it('sends explicitly configured collector events as JSON Blobs with the same event ID', async () => {
+    const transmissions: Array<{ url: string; body: any }> = [];
+    (globalThis as any).navigator.sendBeacon = (url: string, body: any) => {
+      transmissions.push({ url, body });
+      return true;
+    };
+    const runtime = FastLink.init({ signals: { collector: '/api/v1/events', consent: () => false } });
+    runtime.recordEvent('Contact', { cta: 'phone' }, { eventId: 'stable-id-1' });
+    expect(transmissions).toHaveLength(1);
+    expect(transmissions[0].url).toBe('/api/v1/events');
+    expect(transmissions[0].body).toBeInstanceOf(Blob);
+    // Bun/Blob may append charset=utf-8; both MIME forms satisfy JSON extractors.
+    expect(transmissions[0].body.type).toMatch(/^application\/json(?:;|$)/);
+    const parsed = JSON.parse(await transmissions[0].body.text());
+    expect(parsed.event_id).toBe('stable-id-1');
+    expect(parsed.event_name).toBe('Contact');
+  });
+
+  it('falls back to JSON keepalive fetch when sendBeacon rejects the queue', () => {
+    const originalFetch = globalThis.fetch;
+    const calls: any[] = [];
+    (globalThis as any).fetch = (url: string, options: any) => { calls.push({ url, options }); return Promise.resolve({ ok: true }); };
+    (globalThis as any).navigator.sendBeacon = () => false;
+    try {
+      const runtime = FastLink.init({ signals: { collector: '/api/v1/events', consent: () => false } });
+      runtime.recordEvent('Contact', {}, { eventId: 'retry-id' });
+      expect(calls).toHaveLength(1);
+      expect(calls[0].options.headers['Content-Type']).toBe('application/json');
+      expect(JSON.parse(calls[0].options.body).event_id).toBe('retry-id');
+      expect(calls[0].options.keepalive).toBe(true);
+    } finally {
+      (globalThis as any).fetch = originalFetch;
+    }
+  });
+
+  it('never lets forceMarketing bypass denied consent', () => {
+    let calls = 0;
+    (window as any).fbq = () => { calls++; };
+    FastLink.init({ signals: { consent: () => false } });
+    FastLink.recordEvent('Contact', {}, { forceMarketing: true });
+    expect(calls).toBe(0);
+  });
+
+  it('does not turn generic CTA events into unverified Lead or Purchase conversions', () => {
+    const names: string[] = [];
+    (window as any).fbq = (_action: string, name: string) => { names.push(name); };
+    FastLink.init({ signals: { consent: () => true } });
+    const cta = document.createElement('a') as any;
+    cta.setAttribute('data-fl-event', 'Lead');
+    cta.setAttribute('href', '/apply');
+    document.body.appendChild(cta);
+    for (const listener of (document as any)._listeners.click) listener({ target: cta, detail: 1 });
+    FastLink.recordEvent('Purchase');
+    expect(names).toEqual([]);
+    FastLink.recordVerifiedLead({ status: 'confirmed' });
+    FastLink.recordVerifiedPurchase({ transaction_id: 'tx-test' });
+    expect(names).toEqual(['Lead', 'Purchase']);
+  });
+
+  it('sanitizes mixed-case sensitive query names and sensitive URL fragments', () => {
+    const signals = new FastLinkSignals();
+    const sanitized = signals.sanitizeUrl('https://example.com/lead?Token=abc&UTM_Source=paid#password=secret&section=form');
+    expect(sanitized).not.toContain('abc');
+    expect(sanitized).not.toContain('secret');
+    expect(sanitized).toContain('UTM_Source=paid');
   });
 });

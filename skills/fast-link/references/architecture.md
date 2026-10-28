@@ -1,6 +1,6 @@
 # FastLink Architecture & Integration Modes
 
-FastLink accelerates web navigation by capturing the human mouse press-to-release interval (~85ms to 150ms). Navigation and speculative prefetching initiate on primary mouse `pointerdown` rather than waiting for the `click` event.
+FastLink provides eligible-page prefetch on primary mouse `pointerdown` in safe mode. Explicitly approved fast routes may navigate after `pointerup` confirms release on the original anchor. An observed press-hold interval is not automatically a navigation-speed improvement.
 
 ---
 
@@ -20,13 +20,13 @@ flowchart TD
 
     subgraph ModeB ["Mode B: Direct Client Script Tag"]
         direction TB
-        ClientB["Browser (MPA / Static)"] -->|"Loads fastlink.min.js (<1KB)"| CDN["Static / CDN Assets"]
+        ClientB["Browser (MPA / Static)"] -->|"Loads fastlink.min.js"| CDN["Static / CDN Assets"]
         ClientB -->|"window.location.assign"| ServerB["Application Server"]
     end
 
     subgraph ModeC ["Mode C: SPA Framework Adapter"]
         direction TB
-        ClientC["Browser (React / Next / Vue)"] -->|"pointerdown"| Hook["window.__FAST_LINK_NAVIGATE__"]
+        ClientC["Browser (React / Next / Vue)"] -->|"confirmed click / fast pointerup"| Hook["window.__FAST_LINK_NAVIGATE__"]
         Hook -->|"router.push()"| AppRouter["Client-Side Router"]
     end
 ```
@@ -47,7 +47,7 @@ Multi-page applications (Go, Rust, Python Django/FastAPI, Ruby on Rails, PHP Lar
 
 ---
 
-## Mode B: Direct Client Script Injection (<1KB)
+## Mode B: Direct Client Script Injection
 
 ### Target Use Case
 Static site generators (Astro, Hugo, 11ty), CDN-hosted storefronts, or traditional server-rendered templates where inserting a single `<script>` tag is straightforward.
@@ -58,7 +58,7 @@ Static site generators (Astro, Hugo, 11ty), CDN-hosted storefronts, or tradition
    ```html
    <script src="/fastlink.min.js" defer></script>
    ```
-3. The script automatically initializes once (`window.__FAST_LINK_INITIALIZED__`), registers capturing listeners on `document`, and handles early navigation via `window.location.assign`.
+3. The script initializes once (`window.__FAST_LINK_INITIALIZED__`) and registers capturing listeners on `document`. By default navigation remains native; approved fast routes may call `window.location.assign` on confirmed mouse release.
 
 ---
 

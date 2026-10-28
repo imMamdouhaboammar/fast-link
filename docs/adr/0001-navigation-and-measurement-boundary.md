@@ -14,9 +14,9 @@ FastLink originally attempted to accelerate navigation by triggering immediate r
 We decouple FastLink into three independently usable, modular layers with clear invariants:
 
 ### 1. Navigation Modes
-- **`observe`**: Passive telemetry only. Measures pointer-to-click hold duration, latency, and drag-away aborts. Never modifies navigation and never suppresses click events.
+- **`observe`**: Passive telemetry only. Measures pointer-to-click hold duration and drag-away aborts. Never modifies navigation and never suppresses click events.
 - **`safe` (Default)**: Initiates speculative prefetching (via Speculation Rules API or `<link rel="prefetch">`) on valid pointer intent. Navigation is **never** initiated on `pointerdown`; it waits for the native `click` event or framework router confirmation. Native click propagation is fully preserved.
-- **`fast` (Explicit Opt-In)**: Early navigation is strictly restricted to pre-approved, same-origin, non-conversion routes (`fastRoutes` or `data-fl-fast="true"`). Follow-up synthetic clicks are neutralized with `preventDefault()` (never `stopPropagation()`).
+- **`fast` (Explicit Opt-In)**: Navigation on confirmed primary-mouse `pointerup` is restricted to pre-approved, same-origin routes (`fastRoutes` or `data-fl-fast="true"`), allowing drag-away cancellation. Follow-up clicks are neutralized with `preventDefault()` (never `stopPropagation()`).
 
 ### 2. Marketing Signal & Conversion Truth Boundary
 We enforce a strict boundary between interaction stages:
@@ -37,7 +37,7 @@ Pointer Intent (Hold)  ──>  Confirmed Activation (Click / Submit)  ──>  
 - Prefetch endpoints must only report `prewarmed: true` when upstream caching or prefetching actually succeeded.
 
 ## Consequences
-- Eliminates touch scroll hijacking and drag-away false navigations.
-- Guarantees 100% preservation of third-party analytics and ad pixel events on landing pages.
-- Enables seamless integration into static sites, WordPress, PHP, Laravel, Next.js, and other SPAs with zero proxy requirement.
+- Both safe and explicitly approved fast navigation reject touch and drag-away gestures; fast mode may navigate on release before the native click event.
+- Preserves native click propagation so third-party analytics can observe activation; delivery and attribution are not guaranteed.
+- Supports integration into static sites, WordPress, PHP, Laravel, Next.js, and other SPAs without requiring a proxy.
 - Accurately reports prefetch and measurement status without simulated falsehoods.

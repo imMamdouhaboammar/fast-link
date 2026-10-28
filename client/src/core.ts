@@ -18,6 +18,10 @@ const NESTED_TAGS: Record<string, number> = {
 };
 const BUTTON_ROLE_REGEX = /(?:^|[\t\n\f\r ])button(?:$|[\t\n\f\r ])/i;
 const LINK_ROLE_REGEX = /^[\t\n\f\r ]*(?:link)?[\t\n\f\r ]*$/i;
+const DEFAULT_EXCLUSIONS = ['/api/*', '/auth/*', '/logout', '/admin/*'];
+const MUTATING_QUERY_KEYS = new Set([
+  'add-to-cart', 'wc-ajax', 'action', 'logout', '_wpnonce', 'remove_item',
+]);
 
 export class FastLinkCore {
   private config: FastLinkConfig;
@@ -38,7 +42,7 @@ export class FastLinkCore {
       navigation: {
         prefetch: config.navigation?.prefetch || 'same-origin',
         preserveNativeClicks: config.navigation?.preserveNativeClicks !== false,
-        exclude: config.navigation?.exclude || ['/api/*', '/auth/*', '/logout', '/admin/*'],
+        exclude: config.navigation?.exclude || DEFAULT_EXCLUSIONS,
         fastRoutes: config.navigation?.fastRoutes || [],
         matchDataFastLinkOnly: config.navigation?.matchDataFastLinkOnly || false,
         timeoutMs: config.navigation?.timeoutMs || 5000,
@@ -94,16 +98,23 @@ export class FastLinkCore {
     return false;
   }
 
-  public isExcluded(pathname: string): boolean {
-    const exclusions = this.config.navigation?.exclude || [];
+  public isExcluded(pathname: string, search = ''): boolean {
+    const params = new URLSearchParams(search);
+    for (const key of params.keys()) {
+      if (MUTATING_QUERY_KEYS.has(key.toLowerCase())) return true;
+    }
+
+    // Configured exclusions add to the mandatory sensitive-route defaults.
+    const exclusions = [...DEFAULT_EXCLUSIONS, ...(this.config.navigation?.exclude || [])];
     for (const pattern of exclusions) {
+      const target = pattern.includes('?') ? pathname + search : pathname;
       if (pattern.endsWith('/*')) {
         const prefix = pattern.slice(0, -2);
-        if (pathname.startsWith(prefix)) return true;
+        if (target.startsWith(prefix)) return true;
       } else if (pattern.endsWith('*')) {
         const prefix = pattern.slice(0, -1);
-        if (pathname.startsWith(prefix)) return true;
-      } else if (pathname === pattern) {
+        if (target.startsWith(prefix)) return true;
+      } else if (target === pattern) {
         return true;
       }
     }
@@ -161,7 +172,7 @@ export class FastLinkCore {
       if (resolved.origin !== window.location.origin) return null;
 
       // Exclusions check
-      if (this.isExcluded(resolved.pathname)) return null;
+      if (this.isExcluded(resolved.pathname, resolved.search)) return null;
 
       return {
         anchor,
@@ -176,6 +187,11 @@ export class FastLinkCore {
   }
 
   public prefetchUrl(url: URL): { prefetched: boolean; method: FastLinkIntent['prefetchMethod'] } {
+    if (this.getMode() === 'observe' ||
+        url.origin !== window.location.origin ||
+        this.isExcluded(url.pathname, url.search)) {
+      return { prefetched: false, method: 'none' };
+    }
     if (this.prefetchedUrls.has(url.href)) {
       return { prefetched: true, method: 'none' };
     }
@@ -198,7 +214,7 @@ export class FastLinkCore {
       typeof (HTMLScriptElement as any).supports === 'function' &&
       (HTMLScriptElement as any).supports('speculationrules');
 
-    if (hasSpeculationRules && this.config.navigation?.prefetch !== 'none') {
+    if (hasSpeculationRules) {
       try {
         const specScript = document.createElement('script');
         specScript.type = 'speculationrules';
@@ -271,17 +287,10 @@ export class FastLinkCore {
     }
 
     if (currentMode === 'fast') {
-      // Fast mode: only navigate early if explicitly approved
+      // An approved route may navigate on pointerup, once a drag-away is ruled out.
+      // Navigating on pointerdown cannot distinguish a click from a cancelled drag.
       const isApproved = this.isFastApproved(intent.url.pathname, anchor);
-      if (isApproved) {
-        this.pendingFastAnchor = anchor;
-        const navHook = (window as any).__FAST_LINK_NAVIGATE__;
-        if (typeof navHook === 'function') {
-          navHook(intent);
-        } else {
-          window.location.assign(intent.url.href);
-        }
-      } else {
+      if (!isApproved) {
         // Fall back to safe prefetch if not in approved fastRoutes
         const prefetchResult = this.prefetchUrl(intent.url);
         intent.prefetched = prefetchResult.prefetched;
@@ -342,7 +351,9 @@ export class FastLinkCore {
 
       // If a custom SPA router hook is registered and this is Safe mode, invoke it on confirmed click
       const navHook = (window as any).__FAST_LINK_NAVIGATE__;
-      if (typeof navHook === 'function' && this.activePendingIntent) {
+      if (this.getMode() === 'safe' && typeof navHook === 'function' && this.activePendingIntent &&
+          !event.defaultPrevented && !event.metaKey && !event.ctrlKey &&
+          !event.shiftKey && !event.altKey && (event.button === 0 || event.button === undefined)) {
         event.preventDefault();
         navHook(this.activePendingIntent);
       }
@@ -370,6 +381,20 @@ export class FastLinkCore {
       this.pendingFastAnchor = null;
       this.pressTimestamp = 0;
       this.activePendingIntent = null;
+    } else if (this.getMode() === 'fast' && this.pendingAnchor && this.activePendingIntent &&
+      this.isFastApproved(this.activePendingIntent.url.pathname, this.pendingAnchor) &&
+      !event.defaultPrevented && event.button === 0 && event.pointerType === 'mouse' &&
+      !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey &&
+      this.findAnchor(event.target) === this.pendingAnchor) {
+      // A completed primary-mouse release on the original link is the earliest
+      // point at which a cancelled drag cannot trigger accidental navigation.
+      this.pendingFastAnchor = this.pendingAnchor;
+      const navHook = (window as any).__FAST_LINK_NAVIGATE__;
+      if (typeof navHook === 'function') {
+        navHook(this.activePendingIntent);
+      } else {
+        window.location.assign(this.activePendingIntent.url.href);
+      }
     }
   }
 

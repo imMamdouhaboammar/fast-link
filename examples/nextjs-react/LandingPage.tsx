@@ -29,7 +29,11 @@ export function PaidTrafficLandingPage() {
 
       const data = await res.json();
 
-      // INVARIANT: Verified Lead event is ONLY dispatched after server confirms 200 OK!
+      // HTTP 200 alone is insufficient: the backend must confirm a persisted lead.
+      if (data.verified !== true || !data.lead_id) {
+        throw new Error('Lead not verified by server');
+      }
+
       const eventId = recordVerifiedLead({
         lead_id: data.lead_id,
         source: 'react_landing_page',

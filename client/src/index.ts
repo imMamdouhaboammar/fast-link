@@ -29,7 +29,7 @@ export class FastLinkRuntime {
         ...config.navigation,
       },
       signals: {
-        collector: config.signals?.collector || (typeof window !== 'undefined' ? (window as any).__FAST_LINK_TELEMETRY__ || '/api/v1/telemetry' : undefined),
+        collector: config.signals?.collector || (typeof window !== 'undefined' ? (window as any).__FAST_LINK_TELEMETRY__ : undefined),
         providers: {
           meta: true,
           tiktok: true,

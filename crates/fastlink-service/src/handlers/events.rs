@@ -1,19 +1,19 @@
+use crate::state::{EventPayload, SharedState, TELEMETRY_EVENTS_TOTAL};
 use axum::{extract::State, http::StatusCode, Json};
 use serde_json::json;
-use crate::state::{EventPayload, SharedState, TELEMETRY_EVENTS_TOTAL};
 
 pub async fn handle_events(
     State(state): State<SharedState>,
     Json(payload): Json<EventPayload>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    if payload.event_id.trim().is_empty() {
+    if payload.event_id.trim().is_empty() || payload.event_id.len() > 128 {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": "missing or empty 'event_id'" })),
         );
     }
 
-    if payload.event_name.trim().is_empty() {
+    if payload.event_name.trim().is_empty() || payload.event_name.len() > 64 {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": "missing or empty 'event_name'" })),

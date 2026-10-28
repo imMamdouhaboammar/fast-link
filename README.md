@@ -3,8 +3,8 @@
 FastLink is an open, framework-independent interaction and navigation system engineered specifically for **paid-traffic landing pages and conversion funnels**.
 
 It solves two interconnected challenges in modern web marketing:
-1. **Interaction Performance**: Recovers the human mechanical delay (~85ms to 130ms) between primary mouse press (`pointerdown`) and release (`click`) through safe, speculative prefetching.
-2. **Measurement Reliability**: Guarantees that advertising pixels (Meta Pixel, TikTok Pixel, Google Tag Manager) and first-party event pipelines never lose, duplicate, or falsely classify conversion events during user interactions or page transitions.
+1. **Interaction Performance**: Starts eligible prefetches during the mouse press-to-click interval; any actual latency benefit must be measured in the browser.
+2. **Measurement Reliability**: Separates interaction attempts from verified outcomes, honors consent, and shares event IDs for deduplication. Delivery and attribution still depend on the browser, collectors, and ad platforms.
 
 ---
 
@@ -32,7 +32,7 @@ Pointer Intent (Hold)  ──>  Confirmed Activation (Click / Submit)  ──>  
 
 ### Where FastLink Helps
 * **Paid-Traffic Landing Pages**: Pages driving traffic from Meta Ads, TikTok Ads, and Google Ads where conversion attribution directly impacts ad spend efficiency.
-* **External CTA Links (WhatsApp, Messenger, Phone)**: Guarantees native navigation without premature lead firing or lost click telemetry.
+* **External CTA Links (WhatsApp, Messenger, Phone)**: Preserves native navigation and separates contact intent from verified leads; telemetry delivery is not guaranteed.
 * **Multi-Page & Server-Rendered Applications**: WordPress, WooCommerce, Laravel, Django, Rails, and static sites seeking instant transitions without adopting heavy SPA client bundles.
 * **Modern SPAs (Next.js, Astro, Remix, Vue, SvelteKit)**: Safely coordinates speculative prefetching with client-side routers without double navigation or analytics starvation.
 
@@ -49,9 +49,9 @@ FastLink provides three explicit operational modes:
 
 | Mode | Default | Behavior | Best Used For |
 | :--- | :---: | :--- | :--- |
-| **`observe`** | No | Read-only observation. Measures pointer-to-click hold duration, latency deltas, and drag-away aborts. Never prewarms, never modifies navigation, never suppresses clicks. | Baselines, A/B test controls, compliance audits |
+| **`observe`** | No | Read-only observation. Records pointer-to-click hold duration and drag-away aborts. Never prewarms, never modifies navigation, never suppresses clicks. | Baselines, A/B test controls, compliance audits |
 | **`safe`** | **Yes** | Speculative prefetching on eligible pointerdown gestures via browser-native Speculation Rules API (or `<link rel="prefetch">`). Navigation waits for confirmed `click` or router hook. Native click propagation is 100% preserved. | Production landing pages, paid funnels, e-commerce |
-| **`fast`** | No | Initiates early navigation on `pointerdown` **only** for explicitly approved same-origin routes (`fastRoutes` array or `data-fl-fast="true"`). Follow-up synthetic clicks are suppressed with `preventDefault()` (never `stopPropagation()`). | High-speed internal documentation, simple static apps |
+| **`fast`** | No | Navigates on confirmed primary-mouse `pointerup` **only** for explicitly approved same-origin routes (`fastRoutes` array or `data-fl-fast="true"`), after drag-away cancellation is ruled out. Follow-up clicks are suppressed with `preventDefault()` (never `stopPropagation()`). No measured speed gain is implied. | Opt-in internal routes where pre-click navigation is appropriate |
 
 ---
 
@@ -177,19 +177,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
 ---
 
-## Controlled Performance Experiment Results
+## Experiment Status: Modeled Inputs, Not Measured Performance
 
-A controlled empirical simulation of 1,000 randomized user journeys was conducted across diverse input modalities (desktop mouse clicks, mobile touch sweeps, drag-away cancellations, form validation failures, and successful submissions):
+`docs/experiment/run_experiment.ts` creates a seeded synthetic mix of desktop clicks, touch gestures, drag-away attempts, form outcomes, and modifier/auxiliary clicks. It prints the sample distribution and an assumed mouse hold interval using only eligible desktop clicks as the denominator.
 
-| Metric | Control (Variant A) | Naive Pointerdown (Variant B) | FastLink Safe (Variant C) |
-| :--- | :---: | :---: | :---: |
-| **Touch Scroll Hijack Rate** | **0.0%** (0/1000) | **19.7%** (197/1000) *(Severe defect)* | **0.0%** (0/1000) *(100% safe)* |
-| **Drag-Away False Navigations** | **0.0%** (0/1000) | **9.1%** (91/1000) *(False jumps)* | **0.0%** (0/1000) *(Neutralized)* |
-| **Premature Lead Event Fires** | **0.0%** (0/1000) | **15.2%** (152/1000) *(Signal corruption)* | **0.0%** (0/1000) *(Zero false leads)* |
-| **Duplicate Ad Signals** | **0.0%** (0/1000) | **8.2%** (82/1000) *(Double counts)* | **0.0%** (0/1000) *(Deduplicated)* |
-| **Press Hold Window Recovered** | 0.0 ms | 106.5 ms *(At risk of hijack)* | **106.5 ms** *(Safe prefetch)* |
-| **Prefetch Hit Rate** | N/A | N/A | **86.8%** |
-| **Prefetch Waste Rate** | N/A | N/A | **13.2%** *(Cancelled drag-aways)* |
+**It does not measure navigation latency saved, browser prefetch cache hits, rendering, conversion delivery, or attribution.** No comparative performance win is claimed from this model. See [the experiment protocol](docs/experiment/protocol.md) for measurements still needed.
 
 ---
 
@@ -231,8 +223,8 @@ cargo test --all
 # 4. Run Go gateway tests
 cd go && go test -v ./...
 
-# 5. Run performance simulation benchmark
-bun run docs/experiment/run_experiment.ts
+# 5. Generate a reproducible synthetic scenario sample (not a benchmark)
+bun run docs/experiment/run_experiment.ts --seed=42 --trials=1000
 ```
 
 ---

@@ -11,7 +11,7 @@ FastLink was originally created as an exploration of recovering the human press-
 ### 1. Three Explicit Navigation Modes
 - **`observe`**: Passive monitoring only. Measures pointer-to-click hold durations, drag-away aborts, and confirmed clicks. Never suppresses native events, never modifies navigation, and never initiates speculative prefetch.
 - **`safe` (Default)**: Speculative prefetching on eligible pointerdown gestures via browser-native Speculation Rules API (with `<link rel="prefetch">` fallback). Navigation is deferred until confirmed activation (`click` or framework router hook). Native click propagation is 100% preserved.
-- **`fast` (Explicit Opt-In)**: Early navigation is strictly restricted to pre-approved same-origin routes (`fastRoutes` array or `data-fl-fast="true"`). Follow-up synthetic clicks are suppressed using `event.preventDefault()` exclusively (never `event.stopPropagation()`).
+- **`fast` (Explicit Opt-In)**: Confirmed primary-mouse release (`pointerup`) on pre-approved same-origin routes (`fastRoutes` or `data-fl-fast="true"`) can initiate navigation before `click`, but never on initial press or after drag-away. Follow-up clicks are suppressed using `event.preventDefault()` exclusively (never `event.stopPropagation()`).
 
 ### 2. Marketing Signal Truth & Conversion Lifecycle
 We codify the strict lifecycle separation:
@@ -30,9 +30,10 @@ Pointer Intent (Hold)  ──>  Confirmed Activation (Click / Submit)  ──>  
 - `GET /api/v1/prefetch`: Validates URLs, rejects excluded mutation/auth paths, queries upstream origin when configured, and truthfully reports `prewarmed: false` when upstream warming is unavailable.
 - `POST /api/v1/policies`: Enforces authorization via `Authorization: Bearer <FASTLINK_ADMIN_KEY>`, rejecting unauthorized policy mutations with HTTP 401.
 
-## Verification & Test Results
-- Client unit test suite: 19/19 tests passing (`bun test tests/client`).
-- FastLink skill evals & gesture invariants: 18/18 tests passing (`bun run scripts/run_evals.ts`).
-- Rust service and core test suite: 16 core tests, 1 benchmark, 9 service tests passing (`cargo test --all`).
-- Go service and proxy test suite: 10/10 tests passing (`go test -v ./...`).
-- 1,000-trial simulation experiment proves 0.0% touch hijacks, 0.0% drag-away false navigations, 0.0% premature leads, and 106.5ms hold window recovered via safe prefetching.
+## Verification
+- Client invariants and collector tests: `bun test tests/client`.
+- FastLink skill evals: `bun run test:skills`.
+- Rust service and core tests: `cargo test --all`.
+- Go service and proxy tests: `cd go && go test ./...`.
+- WordPress collector parsing and validation: `php tests/wordpress/collector_test.php`.
+- Synthetic input generator: `bun run docs/experiment/run_experiment.ts --seed=42 --trials=1000`. It cannot demonstrate latency savings or attribution; real browser measurements remain necessary.

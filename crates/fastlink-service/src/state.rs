@@ -1,30 +1,38 @@
-use std::sync::Arc;
-use std::collections::HashSet;
-use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
-use prometheus::{Counter, Histogram, Registry, Opts, HistogramOpts};
+use fastlink_core::{DocumentMethod, FastNavigationDecision, RoutePolicyEngine, RoutePolicyRule};
 use lazy_static::lazy_static;
-use fastlink_core::{RoutePolicyEngine, RoutePolicyRule, FastNavigationDecision, DocumentMethod};
+use prometheus::{Counter, Histogram, HistogramOpts, Opts, Registry};
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
-
-    pub static ref RESOLVE_REQUESTS_TOTAL: Counter = Counter::with_opts(
-        Opts::new("fastlink_resolve_requests_total", "Total link resolution requests processed")
-    ).unwrap();
-
-    pub static ref PREFETCH_REQUESTS_TOTAL: Counter = Counter::with_opts(
-        Opts::new("fastlink_prefetch_requests_total", "Total speculative prefetch requests")
-    ).unwrap();
-
-    pub static ref TELEMETRY_EVENTS_TOTAL: Counter = Counter::with_opts(
-        Opts::new("fastlink_telemetry_events_total", "Total telemetry events received")
-    ).unwrap();
-
+    pub static ref RESOLVE_REQUESTS_TOTAL: Counter = Counter::with_opts(Opts::new(
+        "fastlink_resolve_requests_total",
+        "Total link resolution requests processed"
+    ))
+    .unwrap();
+    pub static ref PREFETCH_REQUESTS_TOTAL: Counter = Counter::with_opts(Opts::new(
+        "fastlink_prefetch_requests_total",
+        "Total speculative prefetch requests"
+    ))
+    .unwrap();
+    pub static ref TELEMETRY_EVENTS_TOTAL: Counter = Counter::with_opts(Opts::new(
+        "fastlink_telemetry_events_total",
+        "Total telemetry events received"
+    ))
+    .unwrap();
     pub static ref MOUSE_HOLD_DURATION_MS: Histogram = Histogram::with_opts(
-        HistogramOpts::new("fastlink_mouse_hold_duration_ms", "Mouse press-to-release hold duration in milliseconds")
-            .buckets(vec![20.0, 40.0, 60.0, 80.0, 85.0, 100.0, 120.0, 150.0, 200.0, 300.0, 500.0])
-    ).unwrap();
+        HistogramOpts::new(
+            "fastlink_mouse_hold_duration_ms",
+            "Mouse press-to-release hold duration in milliseconds"
+        )
+        .buckets(vec![
+            20.0, 40.0, 60.0, 80.0, 85.0, 100.0, 120.0, 150.0, 200.0, 300.0, 500.0
+        ])
+    )
+    .unwrap();
 }
 
 pub fn register_metrics() {
@@ -84,7 +92,7 @@ pub struct ServiceConfig {
 
 impl Default for ServiceConfig {
     fn default() -> Self {
-        let admin_key = std::env::var("FASTLINK_ADMIN_KEY").unwrap_or_else(|_| "fastlink-admin-secret".to_string());
+        let admin_key = std::env::var("FASTLINK_ADMIN_KEY").unwrap_or_default();
         Self {
             upstream_origin: std::env::var("FASTLINK_UPSTREAM").ok(),
             enable_proxy: false,
@@ -105,16 +113,21 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(config: ServiceConfig) -> Self {
-        let mut policy_engine = RoutePolicyEngine::new(FastNavigationDecision::Router { scroll: None });
+        let mut policy_engine =
+            RoutePolicyEngine::new(FastNavigationDecision::Router { scroll: None });
         policy_engine.add_rule(RoutePolicyRule {
             pattern: "/api/".to_string(),
-            decision: FastNavigationDecision::Document { method: DocumentMethod::Assign },
+            decision: FastNavigationDecision::Document {
+                method: DocumentMethod::Assign,
+            },
             priority: 100,
             is_prefix: true,
         });
         policy_engine.add_rule(RoutePolicyRule {
             pattern: "/admin".to_string(),
-            decision: FastNavigationDecision::Document { method: DocumentMethod::Assign },
+            decision: FastNavigationDecision::Document {
+                method: DocumentMethod::Assign,
+            },
             priority: 90,
             is_prefix: true,
         });

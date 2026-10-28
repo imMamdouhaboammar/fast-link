@@ -5,7 +5,16 @@ use axum::{
 use serde_json::Value;
 use tower::ServiceExt;
 
-use fastlink_service::default_app;
+use axum::{
+    http::{header, HeaderMap},
+    routing::get,
+    Router,
+};
+use fastlink_service::state::{AppState, ServiceConfig};
+use fastlink_service::{create_app, default_app};
+use flate2::{write::GzEncoder, Compression};
+use std::io::Write;
+use std::sync::Arc;
 
 #[tokio::test]
 async fn test_health_check() {
@@ -42,7 +51,10 @@ async fn test_client_js_endpoint() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let content_type = response.headers().get("content-type").unwrap();
-    assert!(content_type.to_str().unwrap().contains("application/javascript"));
+    assert!(content_type
+        .to_str()
+        .unwrap()
+        .contains("application/javascript"));
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let script = String::from_utf8_lossy(&bytes);
     assert!(script.contains("FastLink Universal Browser Runtime"));
@@ -132,6 +144,27 @@ async fn test_prefetch_endpoint_rejects_excluded_sensitive_route() {
     let json: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(json["status"], "excluded_sensitive_route");
     assert_eq!(json["prewarmed"], false);
+}
+
+#[tokio::test]
+async fn test_prefetch_endpoint_rejects_mutation_query() {
+    let app = default_app();
+    for url in [
+        "/api/v1/prefetch?url=https%3A%2F%2Fexample.com%2F%3Fadd-to-cart%3D123",
+        "/api/v1/prefetch?url=https%3A%2F%2Fexample.com%2F%2561dmin%2Fsettings",
+        "/api/v1/prefetch?url=https%3A%2F%2Fexample.com%2Fpublic%2F..%2Fadmin%2Fsettings",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(url).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "unsafe prefetch: {url}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -236,7 +269,10 @@ async fn test_metrics_endpoint() {
 
 #[tokio::test]
 async fn test_policies_endpoint_requires_authorization() {
-    let app = default_app();
+    let app = create_app(Arc::new(AppState::new(ServiceConfig {
+        admin_key: "test-admin-secret".to_string(),
+        ..ServiceConfig::default()
+    })));
     let payload = serde_json::json!({
         "pattern": "/checkout",
         "decision": { "kind": "document", "method": "assign" },
@@ -267,7 +303,7 @@ async fn test_policies_endpoint_requires_authorization() {
                 .method("POST")
                 .uri("/api/v1/policies")
                 .header("content-type", "application/json")
-                .header("authorization", "Bearer fastlink-admin-secret")
+                .header("authorization", "Bearer test-admin-secret")
                 .body(Body::from(payload.to_string()))
                 .unwrap(),
         )
@@ -275,7 +311,166 @@ async fn test_policies_endpoint_requires_authorization() {
         .unwrap();
 
     assert_eq!(auth_response.status(), StatusCode::CREATED);
-    let bytes = to_bytes(auth_response.into_body(), usize::MAX).await.unwrap();
+    let bytes = to_bytes(auth_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(json["status"], "policy_added");
+}
+
+#[tokio::test]
+async fn test_policies_fail_closed_without_admin_key() {
+    let app = create_app(Arc::new(AppState::new(ServiceConfig {
+        admin_key: String::new(),
+        ..ServiceConfig::default()
+    })));
+    let payload = serde_json::json!({
+        "pattern": "/checkout",
+        "decision": { "kind": "document", "method": "assign" },
+        "priority": 50,
+        "is_prefix": true
+    });
+
+    for auth in ["Bearer fastlink-admin-secret", "Bearer "] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/policies")
+                    .header("content-type", "application/json")
+                    .header("authorization", auth)
+                    .body(Body::from(payload.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+}
+
+#[tokio::test]
+async fn test_proxy_rewrites_gzip_html_and_filters_hop_headers() {
+    let upstream = Router::new().route(
+        "/html",
+        get(|headers: HeaderMap| async move {
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            encoder
+                .write_all(b"<html><body><a href='/next'>Next</a></body></html>")
+                .unwrap();
+            let compressed = encoder.finish().unwrap();
+            let mut response = axum::response::Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "text/html")
+                .header(header::CONTENT_ENCODING, "gzip")
+                .header(header::ETAG, "\"old-etag\"")
+                .header("x-upstream", "preserved")
+                .header(header::CONNECTION, "x-response-hop")
+                .header("x-response-hop", "remove-me")
+                .body(Body::from(compressed))
+                .unwrap();
+            response.headers_mut().insert(
+                "x-request-hop-seen",
+                if headers.contains_key("x-request-hop") {
+                    "yes"
+                } else {
+                    "no"
+                }
+                .parse()
+                .unwrap(),
+            );
+            response
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, upstream).await.unwrap();
+    });
+
+    let app = create_app(Arc::new(AppState::new(ServiceConfig {
+        upstream_origin: Some(upstream_origin),
+        enable_proxy: true,
+        auto_inject_client: true,
+        ..ServiceConfig::default()
+    })));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/html")
+                .header(header::CONNECTION, "x-request-hop")
+                .header("x-request-hop", "should-not-forward")
+                .header(header::ACCEPT_ENCODING, "gzip")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    server.abort();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["x-upstream"], "preserved");
+    assert_eq!(response.headers()["x-request-hop-seen"], "no");
+    assert!(!response.headers().contains_key("x-response-hop"));
+    assert!(!response.headers().contains_key(header::CONTENT_ENCODING));
+    assert!(!response.headers().contains_key(header::ETAG));
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let html = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(
+        html.contains("/fastlink.min.js"),
+        "rewriter must receive decoded HTML"
+    );
+    assert!(html.contains("<a href='/next'"));
+}
+
+#[tokio::test]
+async fn test_proxy_limits_request_body_and_hides_upstream_errors() {
+    let app = create_app(Arc::new(AppState::new(ServiceConfig {
+        upstream_origin: Some("http://127.0.0.1:1/private?token=secret".to_string()),
+        enable_proxy: true,
+        ..ServiceConfig::default()
+    })));
+    let response = app
+        .clone()
+        .oneshot(Request::builder().uri("/page").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let message = String::from_utf8_lossy(&body);
+    assert!(!message.contains("127.0.0.1") && !message.contains("secret"));
+
+    let large_body = vec![b'x'; 16 * 1024 * 1024 + 1];
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/upload")
+                .body(Body::from(large_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn test_events_reject_oversized_identifiers() {
+    let app = default_app();
+    let payload = serde_json::json!({
+        "event_id": "x".repeat(129),
+        "event_name": "Contact",
+        "timestamp_ms": 1700000000000u64,
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/events")
+                .header("content-type", "application/json")
+                .body(Body::from(payload.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }

@@ -1,7 +1,7 @@
 # FastLink Performance & Measurement Experiment Protocol
 
 ## Objective
-Establish a reproducible, controlled empirical benchmark comparing navigation performance and measurement reliability across three configurations:
+Define a future, controlled empirical benchmark comparing navigation performance and measurement reliability across three configurations. The current script only generates synthetic input distributions; it does not run these variants in a browser:
 
 1. **Variant A (Control)**: Standard native browser navigation with conventional third-party pixel installations.
 2. **Variant B (Naive FastLink / Unconstrained Pointerdown)**: Early navigation initiated immediately on `pointerdown` without measurement coordination or consent gates.
@@ -55,17 +55,19 @@ In paid-traffic marketing engineering, the following states must never be confla
 
 ## Reproducible Benchmark Suite
 
-Execute the automated simulation harness in `docs/experiment/run_experiment.ts`:
+Generate a deterministic synthetic input sample with `docs/experiment/run_experiment.ts`:
 ```bash
-bun run docs/experiment/run_experiment.ts
+bun run docs/experiment/run_experiment.ts --seed=42 --trials=1000
 ```
-The harness runs 1,000 synthetic trials across diverse input modalities:
+Record the seed alongside the scenario counts. The generator draws 1,000 synthetic inputs across:
 - Desktop mouse clicks with standard 85–120ms hold intervals
 - Mobile touch swipes across link dense regions
 - Mouse drag-away gestures (press on link, drag out, release)
 - Form submissions with server validation errors
-- Successful lead submissions with server confirmation
+- Simulated successful lead-submission scenarios (no server is called)
 - Auxiliary and modifier clicks (middle click, Cmd+Click)
+
+No outcomes are assigned or measured by this generator. Its only numeric duration is an assumed 85–129 ms mouse hold interval, averaged over the generated regular desktop-click cases. That number is **not recovered latency**. Actual navigation and rendering performance, prefetch hits, conversion correctness, and ad-platform attribution require real browser and backend instrumentation.
 
 ---
 
@@ -73,4 +75,4 @@ The harness runs 1,000 synthetic trials across diverse input modalities:
 
 1. **Hypothesis 1 (Touch Safety)**: FastLink Safe achieves 0.0% touch scroll hijack rate by strictly rejecting `pointerType !== 'mouse'`.
 2. **Hypothesis 2 (Signal Truth)**: FastLink Safe generates 0 premature `Lead` events, whereas naive pointerdown systems generate false conversions on drag-away and unconfirmed gestures.
-3. **Hypothesis 3 (Latency Reduction)**: FastLink Safe reclaims the 85ms–120ms mouse hold window via Speculation Rules prefetch, warming the destination before click confirmation without risking premature navigation.
+3. **Hypothesis 3 (Latency Reduction)**: Prefetching during pointer hold could reduce confirmed-click-to-paint latency on cacheable routes. This must be tested with measured navigation timing, prefetch hit status, and comparable page loads; the hold interval alone does not establish any savings.

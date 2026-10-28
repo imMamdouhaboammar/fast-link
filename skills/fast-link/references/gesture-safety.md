@@ -1,6 +1,6 @@
 # FastLink Gesture Safety & Accessibility Invariants
 
-Pointerdown navigation provides an 85ms to 150ms performance gain by initiating navigation upon mouse button depression. However, unconstrained pointerdown listening introduces severe accessibility regressions and breaks native browser interactions.
+Navigating on `pointerdown` can hijack a gesture that later turns into a drag-away cancellation. FastLink instead uses pointer intent only for eligible prefetch, and permits navigation on confirmed mouse release for explicitly approved fast routes. Performance must be measured independently.
 
 FastLink enforces six strict invariants. Every agent implementing, modifying, or configuring FastLink must strictly preserve these rules.
 

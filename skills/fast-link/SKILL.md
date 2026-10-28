@@ -1,16 +1,16 @@
 ---
 name: fast-link
 description: >
-  Audit, configure, instrument, and verify early pointerdown navigation and speculative
-  prefetching across any web project. Initiates route transitions 85ms-150ms earlier than
-  standard click events while strictly preserving mobile touch scrolling, keyboard accessibility,
+  Audit, configure, instrument, and verify gesture-safe navigation and speculative
+  prefetching across web projects. Safe mode prefetches on pointer intent; explicitly
+  approved fast routes may navigate on confirmed mouse release. Preserve mobile touch scrolling, keyboard accessibility,
   modifier keys, and telemetry integrity. Use when setting up fast-link, configuring fast navigation
   microservices, accelerating page transitions with pointerdown prefetching, or debugging link routing.
 ---
 
-# FastLink: Early Pointerdown Navigation & Prefetching
+# FastLink: Gesture-Safe Navigation & Prefetching
 
-FastLink recovers the mechanical delay between human mouse press (`pointerdown`) and release (`click`), initiating route navigation and speculative prefetching 85ms to 150ms before standard browser click handlers fire.
+FastLink may prefetch eligible pages on mouse `pointerdown` in safe mode. Explicitly approved fast routes may navigate after `pointerup` confirms the mouse was released on the same link. A measured navigation-speed improvement must be established separately; an assumed press-hold interval is not latency saved.
 
 This skill provides technical specifications and step-by-step procedures for agents to audit, configure, instrument, and verify FastLink across any web architecture.
 
@@ -79,8 +79,8 @@ Every implementation must preserve the 6 Inviolable Invariants documented in `re
 1. **Touch Rejection**: Must check `event.pointerType === 'mouse'`. Never trigger on touch or pen to prevent mobile scroll hijacking.
 2. **Modifier Passthrough**: Must ignore events when `event.button !== 0` or `metaKey`, `ctrlKey`, `shiftKey`, `altKey` are pressed, ensuring native new tab/window functionality remains intact.
 3. **Keyboard Preservation**: Must never suppress click events where `event.detail === 0` (Enter key or assistive technologies).
-4. **Click Suppression**: Must call `event.preventDefault()` on synthetic followup clicks to prevent double navigation, but must NEVER call `event.stopPropagation()` so analytics and trackers continue functioning.
-5. **Drag-Away Abort**: Must detect pointer release outside target anchor and abort pending navigation.
+4. **Click Suppression**: After a fast-mode navigation was actually initiated on confirmed `pointerup`, call `event.preventDefault()` on its follow-up click to prevent double navigation; NEVER call `event.stopPropagation()`.
+5. **Drag-Away Abort**: Must wait for `pointerup` on the original anchor before fast navigation; release outside the anchor must abort without navigation.
 6. **Opt-Out Directives**: Must honor `data-no-fast-link`, `role="button"`, `target="_blank"`, and `download`.
 
 ### Step 5: Verify & Benchmark (Freedom: Low)

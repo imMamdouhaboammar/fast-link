@@ -59,14 +59,16 @@
       });
     }, false);
 
-    // WooCommerce Add To Cart / Checkout Integration
-    document.body.addEventListener('click', function(event) {
-      var target = event.target;
-      if (target && target.matches('.single_add_to_cart_button, .ajax_add_to_cart')) {
+    // WooCommerce confirms AJAX additions via added_to_cart, not the button click.
+    // Failed requests and invalid product variations must not become conversions.
+    if (window.jQuery) {
+      window.jQuery(document.body).on('added_to_cart.fastlink', function(event, fragments, cartHash, $button) {
+        var target = $button && $button[0];
+        if (!target) return;
         FastLink.recordEvent('AddToCart', {
           product_id: target.value || target.getAttribute('data-product_id')
         });
-      }
-    });
+      });
+    }
   });
 </script>

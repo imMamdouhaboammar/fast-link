@@ -1,13 +1,17 @@
 package server
 
 import (
+	"compress/gzip"
+	"compress/zlib"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	pathpkg "path"
 	"strings"
 	"sync"
 	"time"
@@ -67,7 +71,7 @@ type EventRecord struct {
 
 type ResolveRequest struct {
 	Context core.InteractionContext `json:"context"`
-	Anchor  core.AnchorAttributes  `json:"anchor"`
+	Anchor  core.AnchorAttributes   `json:"anchor"`
 }
 
 type ResolveResponse struct {
@@ -83,9 +87,6 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 	if cfg.AdminKey == "" {
 		cfg.AdminKey = os.Getenv("FASTLINK_ADMIN_KEY")
-		if cfg.AdminKey == "" {
-			cfg.AdminKey = "fastlink-admin-secret"
-		}
 	}
 
 	engine := core.NewRoutePolicyEngine(core.FastNavigationDecision{Kind: core.DecisionKindRouter})
@@ -130,11 +131,35 @@ func NewServer(cfg Config) (*Server, error) {
 		rp.Director = func(req *http.Request) {
 			originalDirector(req)
 			req.Host = targetURL.Host
+			// The proxy may rewrite HTML; avoid passing through browser-only encodings.
+			req.Header.Set("Accept-Encoding", "gzip")
 		}
 		rp.ModifyResponse = func(resp *http.Response) error {
 			contentType := resp.Header.Get("Content-Type")
-			if strings.Contains(contentType, "text/html") && cfg.AutoInjectClient {
-				bodyBytes, err := io.ReadAll(resp.Body)
+			if strings.Contains(contentType, "text/html") && cfg.AutoInjectClient &&
+				resp.StatusCode == http.StatusOK && resp.Request.Method != http.MethodHead {
+				var reader io.ReadCloser = resp.Body
+				switch strings.ToLower(resp.Header.Get("Content-Encoding")) {
+				case "", "identity":
+				case "gzip":
+					gz, err := gzip.NewReader(resp.Body)
+					if err != nil {
+						return err
+					}
+					reader = gz
+				case "deflate":
+					zr, err := zlib.NewReader(resp.Body)
+					if err != nil {
+						return err
+					}
+					reader = zr
+				default:
+					return nil // Preserve unsupported encodings instead of corrupting HTML.
+				}
+				bodyBytes, err := io.ReadAll(reader)
+				if reader != resp.Body {
+					_ = reader.Close()
+				}
 				if err != nil {
 					return err
 				}
@@ -143,6 +168,9 @@ func NewServer(cfg Config) (*Server, error) {
 				resp.Body = io.NopCloser(strings.NewReader(rewritten))
 				resp.ContentLength = int64(len(rewritten))
 				resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(rewritten)))
+				resp.Header.Del("Content-Encoding")
+				resp.Header.Del("ETag")
+				resp.Header.Del("Content-MD5")
 			}
 			return nil
 		}
@@ -221,14 +249,21 @@ func (s *Server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	parsedURL, err := url.Parse(targetURLStr)
-	if err != nil {
+	if err != nil || (parsedURL.Scheme != "https" && parsedURL.Scheme != "http") || parsedURL.Host == "" {
 		http.Error(w, "invalid 'url' parameter", http.StatusBadRequest)
 		return
 	}
 
 	// Invariant: Reject sensitive mutation, admin, and logout routes
-	path := parsedURL.Path
-	if strings.HasPrefix(path, "/api/") ||
+	path := pathpkg.Clean(parsedURL.Path)
+	unsafeQuery := false
+	for key := range parsedURL.Query() {
+		switch strings.ToLower(key) {
+		case "add-to-cart", "wc-ajax", "action", "logout", "_wpnonce", "remove_item":
+			unsafeQuery = true
+		}
+	}
+	if unsafeQuery || strings.HasPrefix(path, "/api/") ||
 		strings.HasPrefix(path, "/auth/") ||
 		strings.HasPrefix(path, "/admin") ||
 		path == "/logout" {
@@ -248,7 +283,23 @@ func (s *Server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
 	if s.config.UpstreamOrigin != "" {
 		client := &http.Client{Timeout: 1500 * time.Millisecond}
 		upstreamURL := strings.TrimRight(s.config.UpstreamOrigin, "/") + path
-		resp, err := client.Get(upstreamURL)
+		upstreamReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, upstreamURL, nil)
+		if err != nil {
+			http.Error(w, "invalid upstream request", http.StatusBadGateway)
+			return
+		}
+		resp, err := client.Do(upstreamReq)
+		if err == nil {
+			defer resp.Body.Close()
+		}
+		if r.Context().Err() != nil {
+			http.Error(w, "request cancelled", http.StatusRequestTimeout)
+			return
+		}
+		if err == nil {
+			// Drain the small response when possible so keep-alive connections are reusable.
+			_, _ = io.Copy(io.Discard, resp.Body)
+		}
 		if err == nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			cc := resp.Header.Get("Cache-Control")
 			if strings.Contains(cc, "no-store") || strings.Contains(cc, "private") {
@@ -276,6 +327,18 @@ func (s *Server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		status := "upstream_unavailable"
+		if err == nil {
+			status = fmt.Sprintf("upstream_status_%d", resp.StatusCode)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-FastLink-Prefetch", "upstream-error")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"url": targetURLStr, "status": status, "prewarmed": false,
+			"timestamp_ms": time.Now().UnixMilli(),
+		})
+		return
 	}
 
 	// Truthful reporting when upstream is not active or warming didn't happen
@@ -317,17 +380,23 @@ func (s *Server) handleTelemetry(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 	var record EventRecord
 	if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
+		var limitErr *http.MaxBytesError
+		if errors.As(err, &limitErr) {
+			http.Error(w, "event payload too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	if strings.TrimSpace(record.EventID) == "" {
+	if strings.TrimSpace(record.EventID) == "" || len(record.EventID) > 128 {
 		http.Error(w, "missing or empty 'event_id'", http.StatusBadRequest)
 		return
 	}
-	if strings.TrimSpace(record.EventName) == "" {
+	if strings.TrimSpace(record.EventName) == "" || len(record.EventName) > 64 {
 		http.Error(w, "missing or empty 'event_name'", http.StatusBadRequest)
 		return
 	}
@@ -371,7 +440,7 @@ func (s *Server) handleAddPolicy(w http.ResponseWriter, r *http.Request) {
 	// Authorization check: Bearer <FASTLINK_ADMIN_KEY>
 	authHeader := r.Header.Get("Authorization")
 	expectedAuth := "Bearer " + s.config.AdminKey
-	if authHeader != expectedAuth {
+	if strings.TrimSpace(s.config.AdminKey) == "" || authHeader != expectedAuth {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(map[string]string{

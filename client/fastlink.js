@@ -61,6 +61,15 @@
   };
   var BUTTON_ROLE_REGEX = /(?:^|[\t\n\f\r ])button(?:$|[\t\n\f\r ])/i;
   var LINK_ROLE_REGEX = /^[\t\n\f\r ]*(?:link)?[\t\n\f\r ]*$/i;
+  var DEFAULT_EXCLUSIONS = ["/api/*", "/auth/*", "/logout", "/admin/*"];
+  var MUTATING_QUERY_KEYS = new Set([
+    "add-to-cart",
+    "wc-ajax",
+    "action",
+    "logout",
+    "_wpnonce",
+    "remove_item"
+  ]);
 
   class FastLinkCore {
     config;
@@ -80,7 +89,7 @@
         navigation: {
           prefetch: config.navigation?.prefetch || "same-origin",
           preserveNativeClicks: config.navigation?.preserveNativeClicks !== false,
-          exclude: config.navigation?.exclude || ["/api/*", "/auth/*", "/logout", "/admin/*"],
+          exclude: config.navigation?.exclude || DEFAULT_EXCLUSIONS,
           fastRoutes: config.navigation?.fastRoutes || [],
           matchDataFastLinkOnly: config.navigation?.matchDataFastLinkOnly || false,
           timeoutMs: config.navigation?.timeoutMs || 5000
@@ -132,18 +141,24 @@
       }
       return false;
     }
-    isExcluded(pathname) {
-      const exclusions = this.config.navigation?.exclude || [];
+    isExcluded(pathname, search = "") {
+      const params = new URLSearchParams(search);
+      for (const key of params.keys()) {
+        if (MUTATING_QUERY_KEYS.has(key.toLowerCase()))
+          return true;
+      }
+      const exclusions = [...DEFAULT_EXCLUSIONS, ...this.config.navigation?.exclude || []];
       for (const pattern of exclusions) {
+        const target = pattern.includes("?") ? pathname + search : pathname;
         if (pattern.endsWith("/*")) {
           const prefix = pattern.slice(0, -2);
-          if (pathname.startsWith(prefix))
+          if (target.startsWith(prefix))
             return true;
         } else if (pattern.endsWith("*")) {
           const prefix = pattern.slice(0, -1);
-          if (pathname.startsWith(prefix))
+          if (target.startsWith(prefix))
             return true;
-        } else if (pathname === pattern) {
+        } else if (target === pattern) {
           return true;
         }
       }
@@ -188,7 +203,7 @@
         const resolved = new URL(href, baseUri);
         if (resolved.origin !== window.location.origin)
           return null;
-        if (this.isExcluded(resolved.pathname))
+        if (this.isExcluded(resolved.pathname, resolved.search))
           return null;
         return {
           anchor,
@@ -202,6 +217,9 @@
       }
     }
     prefetchUrl(url) {
+      if (this.getMode() === "observe" || url.origin !== window.location.origin || this.isExcluded(url.pathname, url.search)) {
+        return { prefetched: false, method: "none" };
+      }
       if (this.prefetchedUrls.has(url.href)) {
         return { prefetched: true, method: "none" };
       }
@@ -216,7 +234,7 @@
       }
       let method = "none";
       const hasSpeculationRules = typeof HTMLScriptElement !== "undefined" && typeof HTMLScriptElement.supports === "function" && HTMLScriptElement.supports("speculationrules");
-      if (hasSpeculationRules && this.config.navigation?.prefetch !== "none") {
+      if (hasSpeculationRules) {
         try {
           const specScript = document.createElement("script");
           specScript.type = "speculationrules";
@@ -281,15 +299,7 @@
       }
       if (currentMode === "fast") {
         const isApproved = this.isFastApproved(intent.url.pathname, anchor);
-        if (isApproved) {
-          this.pendingFastAnchor = anchor;
-          const navHook = window.__FAST_LINK_NAVIGATE__;
-          if (typeof navHook === "function") {
-            navHook(intent);
-          } else {
-            window.location.assign(intent.url.href);
-          }
-        } else {
+        if (!isApproved) {
           const prefetchResult = this.prefetchUrl(intent.url);
           intent.prefetched = prefetchResult.prefetched;
           intent.prefetchMethod = prefetchResult.method;
@@ -336,7 +346,7 @@
           prefetch_method: this.activePendingIntent?.prefetchMethod || "none"
         });
         const navHook = window.__FAST_LINK_NAVIGATE__;
-        if (typeof navHook === "function" && this.activePendingIntent) {
+        if (this.getMode() === "safe" && typeof navHook === "function" && this.activePendingIntent && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && (event.button === 0 || event.button === undefined)) {
           event.preventDefault();
           navHook(this.activePendingIntent);
         }
@@ -360,6 +370,14 @@
         this.pendingFastAnchor = null;
         this.pressTimestamp = 0;
         this.activePendingIntent = null;
+      } else if (this.getMode() === "fast" && this.pendingAnchor && this.activePendingIntent && this.isFastApproved(this.activePendingIntent.url.pathname, this.pendingAnchor) && !event.defaultPrevented && event.button === 0 && event.pointerType === "mouse" && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && this.findAnchor(event.target) === this.pendingAnchor) {
+        this.pendingFastAnchor = this.pendingAnchor;
+        const navHook = window.__FAST_LINK_NAVIGATE__;
+        if (typeof navHook === "function") {
+          navHook(this.activePendingIntent);
+        } else {
+          window.location.assign(this.activePendingIntent.url.href);
+        }
       }
     }
     emitTelemetry(data) {
@@ -444,8 +462,17 @@
       }
       try {
         const url = new URL(rawUrl, typeof window !== "undefined" ? window.location.href : "http://localhost");
-        for (const param of SENSITIVE_QUERY_PARAMS) {
-          url.searchParams.delete(param);
+        for (const key of Array.from(url.searchParams.keys())) {
+          if (SENSITIVE_QUERY_PARAMS.includes(key.toLowerCase()))
+            url.searchParams.delete(key);
+        }
+        try {
+          const fragment = decodeURIComponent(url.hash.slice(1));
+          if (SENSITIVE_QUERY_PARAMS.some((key) => new RegExp(`(?:^|[?&#])${key}=`, "i").test(fragment))) {
+            url.hash = "";
+          }
+        } catch {
+          url.hash = "";
         }
         return url.href;
       } catch {
@@ -453,6 +480,11 @@
       }
     }
     recordEvent(eventName, properties = {}, options = {}) {
+      if ((eventName === "Lead" || eventName === "Purchase") && options.verified !== true) {
+        if (this.config.debug)
+          console.warn(`[FastLink Signals] Unverified ${eventName} ignored.`);
+        return "";
+      }
       const eventId = options.eventId || this.generateEventId();
       if (this.dispatchedEventIds.has(eventId)) {
         if (this.config.debug)
@@ -471,7 +503,7 @@
         verified: options.verified,
         properties: { ...properties }
       };
-      const consentGranted = this.hasMarketingConsent() || !!options.forceMarketing;
+      const consentGranted = this.hasMarketingConsent();
       if (consentGranted) {
         this.dispatchToMeta(eventName, payload, eventId);
         this.dispatchToTikTok(eventName, payload, eventId);
@@ -583,9 +615,16 @@
         return;
       try {
         const dataStr = JSON.stringify(payload);
-        if (navigator.sendBeacon) {
-          navigator.sendBeacon(endpoint, dataStr);
-        } else {
+        let queued = false;
+        if (typeof navigator.sendBeacon === "function") {
+          try {
+            queued = navigator.sendBeacon(endpoint, new Blob([dataStr], { type: "application/json" }));
+          } catch (e) {
+            if (this.config.debug)
+              console.warn("[FastLink Signals] Beacon enqueue failed:", e);
+          }
+        }
+        if (!queued) {
           fetch(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -653,7 +692,7 @@
           ...config.navigation
         },
         signals: {
-          collector: config.signals?.collector || (typeof window !== "undefined" ? window.__FAST_LINK_TELEMETRY__ || "/api/v1/telemetry" : undefined),
+          collector: config.signals?.collector || (typeof window !== "undefined" ? window.__FAST_LINK_TELEMETRY__ : undefined),
           providers: {
             meta: true,
             tiktok: true,

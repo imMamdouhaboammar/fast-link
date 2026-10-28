@@ -67,8 +67,17 @@ export class FastLinkSignals {
     }
     try {
       const url = new URL(rawUrl, typeof window !== 'undefined' ? window.location.href : 'http://localhost');
-      for (const param of SENSITIVE_QUERY_PARAMS) {
-        url.searchParams.delete(param);
+      for (const key of Array.from(url.searchParams.keys())) {
+        if (SENSITIVE_QUERY_PARAMS.includes(key.toLowerCase())) url.searchParams.delete(key);
+      }
+      // Hash-based routers can carry tokens too; drop the fragment when it contains one.
+      try {
+        const fragment = decodeURIComponent(url.hash.slice(1));
+        if (SENSITIVE_QUERY_PARAMS.some((key) => new RegExp(`(?:^|[?&#])${key}=`, 'i').test(fragment))) {
+          url.hash = '';
+        }
+      } catch {
+        url.hash = ''; // Malformed encoding: avoid leaking an unparseable fragment.
       }
       return url.href;
     } catch {
@@ -86,6 +95,10 @@ export class FastLinkSignals {
       forceMarketing?: boolean;
     } = {}
   ): string {
+    if ((eventName === 'Lead' || eventName === 'Purchase') && options.verified !== true) {
+      if (this.config.debug) console.warn(`[FastLink Signals] Unverified ${eventName} ignored.`);
+      return '';
+    }
     const eventId = options.eventId || this.generateEventId();
 
     // Prevent duplicate dispatch for the same event_id
@@ -108,7 +121,8 @@ export class FastLinkSignals {
     };
 
     // 1. Dispatch to marketing providers if consent is granted
-    const consentGranted = this.hasMarketingConsent() || !!options.forceMarketing;
+    // Consent cannot be overridden by individual event dispatch options.
+    const consentGranted = this.hasMarketingConsent();
     if (consentGranted) {
       this.dispatchToMeta(eventName, payload, eventId);
       this.dispatchToTikTok(eventName, payload, eventId);
@@ -225,9 +239,15 @@ export class FastLinkSignals {
 
     try {
       const dataStr = JSON.stringify(payload);
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon(endpoint, dataStr);
-      } else {
+      let queued = false;
+      if (typeof navigator.sendBeacon === 'function') {
+        try {
+          queued = navigator.sendBeacon(endpoint, new Blob([dataStr], { type: 'application/json' }));
+        } catch (e) {
+          if (this.config.debug) console.warn('[FastLink Signals] Beacon enqueue failed:', e);
+        }
+      }
+      if (!queued) {
         fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

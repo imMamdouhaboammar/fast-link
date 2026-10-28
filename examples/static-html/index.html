@@ -120,6 +120,11 @@
     <p class="subtitle">Framework-agnostic interaction acceleration with conversion-safe signal integrity.</p>
   </header>
 
+  <label style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem;">
+    <input id="marketing-consent" type="checkbox" style="width: auto;">
+    Allow marketing measurement in this demo
+  </label>
+
   <div class="grid">
     <!-- Scenario A: WhatsApp External CTA -->
     <div class="card">
@@ -214,8 +219,8 @@
         exclude: ['/api/*', '/logout', '/admin/*']
       },
       signals: {
-        collector: '/api/v1/events',
-        consent: () => true, // Consent granted for this demo
+        // Add collector: '/api/v1/events' only when that endpoint is deployed.
+        consent: () => document.getElementById('marketing-consent').checked,
         providers: { meta: true, tiktok: true, gtm: true }
       },
       debug: true
@@ -227,13 +232,25 @@
     const form = document.getElementById('demo-lead-form');
     const feedback = document.getElementById('form-feedback');
 
-    form.addEventListener('submit', function(e) {
+    form.addEventListener('submit', async function(e) {
       e.preventDefault();
       logMessage('Form', 'Submit gesture triggered. FormAttempt dispatched. Verifying with server...');
 
-      // Simulate server-side verification request
-      setTimeout(() => {
+      try {
+        // Your backend must validate and persist the lead, then return verified: true and lead_id.
+        const response = await fetch('/api/submit-lead', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: document.getElementById('lead-name').value,
+            email: document.getElementById('lead-email').value
+          })
+        });
+        if (!response.ok) throw new Error('Lead submission rejected');
+        const result = await response.json();
+        if (result.verified !== true || !result.lead_id) throw new Error('Lead not verified');
         const verifiedEventId = FastLink.recordVerifiedLead({
+          lead_id: result.lead_id,
           lead_source: 'hero_form',
           email_domain: document.getElementById('lead-email').value.split('@')[1] || 'unknown'
         });
@@ -242,7 +259,11 @@
         feedback.textContent = `Thank you! Your consultation request has been confirmed. (Event ID: ${verifiedEventId})`;
         feedback.style.display = 'block';
         form.reset();
-      }, 600);
+      } catch {
+        logMessage('Form', 'Lead verification failed. No Lead event was dispatched.');
+        feedback.textContent = 'Submission could not be verified. Please try again.';
+        feedback.style.display = 'block';
+      }
     });
   </script>
 </body>

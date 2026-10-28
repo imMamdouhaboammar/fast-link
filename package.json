@@ -5,7 +5,7 @@
   "description": "Framework-agnostic, conversion-safe navigation and measurement system for paid-traffic landing pages",
   "type": "module",
   "scripts": {
-    "build:client": "bun build client/src/index.ts --outfile client/fastlink.js --format iife --banner \"/* FastLink Universal Browser Runtime v1.0.0 */\" && bun build client/src/index.ts --outfile client/fastlink.min.js --format iife --minify --banner \"/* FastLink Universal Browser Runtime v1.0.0 */\" && cp client/fastlink.min.js skills/fast-link/assets/fastlink.min.js",
+    "build:client": "bun build client/src/index.ts --outfile client/fastlink.js --format iife --banner \"/* FastLink Universal Browser Runtime v1.0.0 */\" && bun build client/src/index.ts --outfile client/fastlink.min.js --format iife --minify --banner \"/* FastLink Universal Browser Runtime v1.0.0 */\" && cp client/fastlink.min.js skills/fast-link/assets/fastlink.min.js && mkdir -p examples/wordpress/assets && cp client/fastlink.min.js examples/wordpress/assets/fastlink.min.js",
     "test:client": "bun test tests/client",
     "test:skills": "cd skills/fast-link && bun run scripts/verify_gesture_invariants.ts && bun run scripts/prove_baseline_failure.ts && bun run scripts/run_evals.ts",
     "test:rust": "cargo test --all",
