@@ -1,4 +1,5 @@
 pub mod client_js;
+pub mod events;
 pub mod health;
 pub mod metrics;
 pub mod policies;

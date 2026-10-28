@@ -23,11 +23,14 @@ async fn main() {
         .and_then(|p| p.parse().ok())
         .unwrap_or(8080);
 
+    let admin_key = std::env::var("FASTLINK_ADMIN_KEY").unwrap_or_else(|_| "fastlink-admin-secret".to_string());
+
     let config = ServiceConfig {
         upstream_origin: upstream,
         enable_proxy: true,
         auto_inject_client: true,
         script_src: "/fastlink.min.js".to_string(),
+        admin_key,
     };
 
     let shared_state = Arc::new(AppState::new(config));

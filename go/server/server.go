@@ -21,6 +21,7 @@ type Config struct {
 	EnableProxy      bool
 	AutoInjectClient bool
 	ScriptSrc        string
+	AdminKey         string
 }
 
 type Server struct {
@@ -30,6 +31,9 @@ type Server struct {
 	clientJS     string
 	telemetryMu  sync.RWMutex
 	telemetryLog []TelemetryRecord
+	eventMu      sync.RWMutex
+	eventLog     []EventRecord
+	recentEvents map[string]bool
 	mux          *http.ServeMux
 	proxyHandler http.Handler
 }
@@ -43,6 +47,22 @@ type TelemetryRecord struct {
 	ClickSuppressed     bool   `json:"click_suppressed"`
 	WasAborted          bool   `json:"was_aborted"`
 	RecordedAt          string `json:"recorded_at"`
+}
+
+type EventRecord struct {
+	EventID         string         `json:"event_id"`
+	EventName       string         `json:"event_name"`
+	TimestampMS     int64          `json:"timestamp_ms"`
+	URL             string         `json:"url,omitempty"`
+	Mode            string         `json:"mode,omitempty"`
+	CTA             string         `json:"cta,omitempty"`
+	PressDurationMS int64          `json:"press_duration_ms,omitempty"`
+	WasAborted      bool           `json:"was_aborted,omitempty"`
+	ClickSuppressed bool           `json:"click_suppressed,omitempty"`
+	Prefetched      bool           `json:"prefetched,omitempty"`
+	PrefetchMethod  string         `json:"prefetch_method,omitempty"`
+	Verified        bool           `json:"verified,omitempty"`
+	Properties      map[string]any `json:"properties,omitempty"`
 }
 
 type ResolveRequest struct {
@@ -60,6 +80,12 @@ type ResolveResponse struct {
 func NewServer(cfg Config) (*Server, error) {
 	if cfg.ScriptSrc == "" {
 		cfg.ScriptSrc = "/fastlink.min.js"
+	}
+	if cfg.AdminKey == "" {
+		cfg.AdminKey = os.Getenv("FASTLINK_ADMIN_KEY")
+		if cfg.AdminKey == "" {
+			cfg.AdminKey = "fastlink-admin-secret"
+		}
 	}
 
 	engine := core.NewRoutePolicyEngine(core.FastNavigationDecision{Kind: core.DecisionKindRouter})
@@ -89,6 +115,8 @@ func NewServer(cfg Config) (*Server, error) {
 		rewriter:     rewriter,
 		clientJS:     clientJSContent,
 		telemetryLog: make([]TelemetryRecord, 0, 1000),
+		eventLog:     make([]EventRecord, 0, 1000),
+		recentEvents: make(map[string]bool),
 		mux:          http.NewServeMux(),
 	}
 
@@ -131,6 +159,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/resolve", s.handleResolve)
 	s.mux.HandleFunc("GET /api/v1/prefetch", s.handlePrefetch)
 	s.mux.HandleFunc("POST /api/v1/telemetry", s.handleTelemetry)
+	s.mux.HandleFunc("POST /api/v1/events", s.handleEvents)
+	s.mux.HandleFunc("POST /api/fastlink/events", s.handleEvents)
 	s.mux.HandleFunc("POST /api/v1/policies", s.handleAddPolicy)
 	s.mux.HandleFunc("GET /metrics", s.handleMetrics)
 	s.mux.HandleFunc("/", s.handleFallback)
@@ -146,7 +176,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"status":  "healthy",
 		"service": "fastlink-go",
-		"version": "0.1.0",
+		"version": "1.0.0",
 	})
 }
 
@@ -184,21 +214,79 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePrefetch(w http.ResponseWriter, r *http.Request) {
-	targetURL := r.URL.Query().Get("url")
-	if targetURL == "" {
+	targetURLStr := r.URL.Query().Get("url")
+	if targetURLStr == "" {
 		http.Error(w, "missing 'url' parameter", http.StatusBadRequest)
 		return
 	}
 
+	parsedURL, err := url.Parse(targetURLStr)
+	if err != nil {
+		http.Error(w, "invalid 'url' parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Invariant: Reject sensitive mutation, admin, and logout routes
+	path := parsedURL.Path
+	if strings.HasPrefix(path, "/api/") ||
+		strings.HasPrefix(path, "/auth/") ||
+		strings.HasPrefix(path, "/admin") ||
+		path == "/logout" {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-FastLink-Prefetch", "excluded")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"url":          targetURLStr,
+			"status":       "excluded_sensitive_route",
+			"prewarmed":    false,
+			"timestamp_ms": time.Now().UnixMilli(),
+		})
+		return
+	}
+
+	// Attempt real prefetch if upstream is configured
+	if s.config.UpstreamOrigin != "" {
+		client := &http.Client{Timeout: 1500 * time.Millisecond}
+		upstreamURL := strings.TrimRight(s.config.UpstreamOrigin, "/") + path
+		resp, err := client.Get(upstreamURL)
+		if err == nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			cc := resp.Header.Get("Cache-Control")
+			if strings.Contains(cc, "no-store") || strings.Contains(cc, "private") {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("X-FastLink-Prefetch", "non-cacheable")
+				w.WriteHeader(http.StatusOK)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"url":          targetURLStr,
+					"status":       "non_cacheable",
+					"prewarmed":    false,
+					"timestamp_ms": time.Now().UnixMilli(),
+				})
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "public, max-age=60")
+			w.Header().Set("X-FastLink-Prefetch", "speculative-hit")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"url":          targetURLStr,
+				"status":       "ready",
+				"prewarmed":    true,
+				"timestamp_ms": time.Now().UnixMilli(),
+			})
+			return
+		}
+	}
+
+	// Truthful reporting when upstream is not active or warming didn't happen
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=60")
-	w.Header().Set("X-FastLink-Prefetch", "speculative-hit")
+	w.Header().Set("X-FastLink-Prefetch", "no-upstream")
 	w.WriteHeader(http.StatusOK)
-
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"url":          targetURL,
-		"status":       "ready",
-		"prewarmed":    true,
+		"url":          targetURLStr,
+		"status":       "no_upstream_configured",
+		"prewarmed":    false,
 		"timestamp_ms": time.Now().UnixMilli(),
 	})
 }
@@ -228,7 +316,71 @@ func (s *Server) handleTelemetry(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	var record EventRecord
+	if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if strings.TrimSpace(record.EventID) == "" {
+		http.Error(w, "missing or empty 'event_id'", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(record.EventName) == "" {
+		http.Error(w, "missing or empty 'event_name'", http.StatusBadRequest)
+		return
+	}
+	if record.TimestampMS == 0 {
+		http.Error(w, "invalid 'timestamp_ms'", http.StatusBadRequest)
+		return
+	}
+
+	s.eventMu.Lock()
+	if s.recentEvents[record.EventID] {
+		s.eventMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":   "deduplicated",
+			"event_id": record.EventID,
+		})
+		return
+	}
+
+	if len(s.recentEvents) >= 10000 {
+		s.recentEvents = make(map[string]bool)
+	}
+	s.recentEvents[record.EventID] = true
+
+	if len(s.eventLog) >= 10000 {
+		s.eventLog = s.eventLog[1:]
+	}
+	s.eventLog = append(s.eventLog, record)
+	s.eventMu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":   "received",
+		"event_id": record.EventID,
+	})
+}
+
 func (s *Server) handleAddPolicy(w http.ResponseWriter, r *http.Request) {
+	// Authorization check: Bearer <FASTLINK_ADMIN_KEY>
+	authHeader := r.Header.Get("Authorization")
+	expectedAuth := "Bearer " + s.config.AdminKey
+	if authHeader != expectedAuth {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error":   "unauthorized",
+			"message": "Valid Bearer authorization token required to mutate route policies",
+		})
+		return
+	}
+
 	var rule core.RoutePolicyRule
 	if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -251,20 +403,21 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	for _, rec := range s.telemetryLog {
 		totalHold += rec.PressDurationMS
 	}
+	s.telemetryMu.RUnlock()
+
 	avgHold := float64(0)
 	if count > 0 {
 		avgHold = float64(totalHold) / float64(count)
 	}
-	s.telemetryMu.RUnlock()
 
-	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "# HELP fastlink_telemetry_samples_total Total number of telemetry samples ingested\n")
-	fmt.Fprintf(w, "# TYPE fastlink_telemetry_samples_total counter\n")
-	fmt.Fprintf(w, "fastlink_telemetry_samples_total %d\n", count)
-	fmt.Fprintf(w, "# HELP fastlink_mouse_hold_duration_ms_avg Average mouse hold duration in milliseconds\n")
-	fmt.Fprintf(w, "# TYPE fastlink_mouse_hold_duration_ms_avg gauge\n")
-	fmt.Fprintf(w, "fastlink_mouse_hold_duration_ms_avg %.2f\n", avgHold)
+	_, _ = fmt.Fprintf(w, "# HELP fastlink_telemetry_events_total Total telemetry events received\n")
+	_, _ = fmt.Fprintf(w, "# TYPE fastlink_telemetry_events_total counter\n")
+	_, _ = fmt.Fprintf(w, "fastlink_telemetry_events_total %d\n", count)
+	_, _ = fmt.Fprintf(w, "# HELP fastlink_avg_hold_duration_ms Average press duration\n")
+	_, _ = fmt.Fprintf(w, "# TYPE fastlink_avg_hold_duration_ms gauge\n")
+	_, _ = fmt.Fprintf(w, "fastlink_avg_hold_duration_ms %.2f\n", avgHold)
 }
 
 func (s *Server) handleFallback(w http.ResponseWriter, r *http.Request) {

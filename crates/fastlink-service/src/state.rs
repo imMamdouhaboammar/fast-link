@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::collections::HashSet;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use prometheus::{Counter, Histogram, Registry, Opts, HistogramOpts};
@@ -46,20 +47,50 @@ pub struct TelemetryPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventPayload {
+    pub event_id: String,
+    pub event_name: String,
+    pub timestamp_ms: u128,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub cta: Option<String>,
+    #[serde(default)]
+    pub press_duration_ms: Option<u64>,
+    #[serde(default)]
+    pub was_aborted: Option<bool>,
+    #[serde(default)]
+    pub click_suppressed: Option<bool>,
+    #[serde(default)]
+    pub prefetched: Option<bool>,
+    #[serde(default)]
+    pub prefetch_method: Option<String>,
+    #[serde(default)]
+    pub verified: Option<bool>,
+    #[serde(default)]
+    pub properties: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceConfig {
     pub upstream_origin: Option<String>,
     pub enable_proxy: bool,
     pub auto_inject_client: bool,
     pub script_src: String,
+    pub admin_key: String,
 }
 
 impl Default for ServiceConfig {
     fn default() -> Self {
+        let admin_key = std::env::var("FASTLINK_ADMIN_KEY").unwrap_or_else(|_| "fastlink-admin-secret".to_string());
         Self {
-            upstream_origin: None,
+            upstream_origin: std::env::var("FASTLINK_UPSTREAM").ok(),
             enable_proxy: false,
             auto_inject_client: true,
             script_src: "/fastlink.min.js".to_string(),
+            admin_key,
         }
     }
 }
@@ -68,6 +99,8 @@ pub struct AppState {
     pub policy_engine: RwLock<RoutePolicyEngine>,
     pub config: ServiceConfig,
     pub telemetry_log: RwLock<Vec<TelemetryPayload>>,
+    pub event_log: RwLock<Vec<EventPayload>>,
+    pub recent_event_ids: RwLock<HashSet<String>>,
 }
 
 impl AppState {
@@ -90,6 +123,8 @@ impl AppState {
             policy_engine: RwLock::new(policy_engine),
             config,
             telemetry_log: RwLock::new(Vec::with_capacity(1000)),
+            event_log: RwLock::new(Vec::with_capacity(1000)),
+            recent_event_ids: RwLock::new(HashSet::with_capacity(1000)),
         }
     }
 }

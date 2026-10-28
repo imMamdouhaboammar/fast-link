@@ -20,6 +20,7 @@ prometheus = "0.13"
 lazy_static = "1.4"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 futures = "0.3"
+url = "2.5"
 
 [dev-dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

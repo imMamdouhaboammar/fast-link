@@ -1,5 +1,5 @@
 use axum::{
-    body::Body,
+    body::{to_bytes, Body},
     extract::{Request, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
@@ -17,19 +17,48 @@ pub async fn handle_proxy_fallback(
             return (
                 StatusCode::NOT_FOUND,
                 HeaderMap::new(),
-                "FastLink Service: No upstream configured and route not matched.".to_string(),
+                "FastLink Service: No upstream configured and route not matched. Direct browser runtime mode is recommended.".to_string(),
             )
                 .into_response();
         }
     };
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_default();
+
     let path = req.uri().path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
     let target_url = format!("{}{}", upstream.trim_end_matches('/'), path);
 
-    let method = reqwest::Method::from_bytes(req.method().as_str().as_bytes()).unwrap_or(reqwest::Method::GET);
+    let method = reqwest::Method::from_bytes(req.method().as_str().as_bytes())
+        .unwrap_or(reqwest::Method::GET);
 
-    let res = match client.request(method, &target_url).send().await {
+    // 1. Forward permitted request headers
+    let mut request_builder = client.request(method.clone(), &target_url);
+    for (k, v) in req.headers() {
+        if k != header::HOST && k != header::CONNECTION && k != header::CONTENT_LENGTH {
+            request_builder = request_builder.header(k.as_str(), v.as_bytes());
+        }
+    }
+
+    // 2. Forward request body for non-GET/HEAD methods
+    if method != reqwest::Method::GET && method != reqwest::Method::HEAD {
+        let body_bytes = match to_bytes(req.into_body(), usize::MAX).await {
+            Ok(b) => b,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    HeaderMap::new(),
+                    format!("Failed to read request body: {}", e),
+                )
+                    .into_response();
+            }
+        };
+        request_builder = request_builder.body(body_bytes);
+    }
+
+    let res = match request_builder.send().await {
         Ok(r) => r,
         Err(e) => {
             return (
